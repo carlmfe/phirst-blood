@@ -33,17 +33,17 @@ endif()
 # Header-Only Library Setup
 # =============================================================================
 
-add_library(rambo_lib INTERFACE)
-add_library(rambo::rambo ALIAS rambo_lib)
+add_library(rambo INTERFACE)
+add_library(rambo::rambo ALIAS rambo)
 
 # Include directories with generator expressions for build and install
-target_include_directories(rambo_lib INTERFACE
+target_include_directories(rambo INTERFACE
     $<BUILD_INTERFACE:${RAMBO_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
 
 # C++ standard requirement
-target_compile_features(rambo_lib INTERFACE cxx_std_17)
+target_compile_features(rambo INTERFACE cxx_std_17)
 
 # =============================================================================
 # Backend-Specific Configuration
@@ -52,7 +52,7 @@ target_compile_features(rambo_lib INTERFACE cxx_std_17)
 if(WITH_KOKKOS)
     # Find and link Kokkos
     find_package(Kokkos REQUIRED)
-    target_link_libraries(rambo_lib INTERFACE Kokkos::kokkos)
+    target_link_libraries(rambo INTERFACE Kokkos::kokkos)
     message(STATUS "Linked Kokkos backend: ${Kokkos_VERSION}")
 else()
     # Base implementation has no external dependencies
@@ -70,7 +70,7 @@ install(DIRECTORY ${RAMBO_SOURCE_DIR}/include/
 )
 
 # Install and export targets for find_package()
-install(TARGETS rambo_lib
+install(TARGETS rambo
     EXPORT rambo-targets
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
