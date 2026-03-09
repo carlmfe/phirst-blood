@@ -29,9 +29,9 @@
 //   cmake -DRAMBO_BACKEND=SYCL -DCMAKE_CXX_COMPILER=clang++ ..
 // =============================================================================
 
-#include "pal/backend.hpp"
-#include "pal/math.hpp"
-#include "pal/random.hpp"
+#include "backend/config.hpp"
+#include "backend/math.hpp"
+#include "backend/random.hpp"
 #include "phase_space.hpp"
 #include "integrands.hpp"
 #include "integrator.hpp"

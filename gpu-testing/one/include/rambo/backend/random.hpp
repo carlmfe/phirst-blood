@@ -13,7 +13,7 @@
  * for better performance in production code.
  */
 
-#include "backend.hpp"
+#include "config.hpp"
 
 namespace rambo {
 

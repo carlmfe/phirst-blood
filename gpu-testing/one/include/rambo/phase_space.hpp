@@ -12,9 +12,9 @@
  * Reference: R. Kleiss, W.J. Stirling, S.D. Ellis, Comp. Phys. Comm. 40 (1986) 359
  */
 
-#include "pal/backend.hpp"
-#include "pal/math.hpp"
-#include "pal/random.hpp"
+#include "backend/config.hpp"
+#include "backend/math.hpp"
+#include "backend/random.hpp"
 
 namespace rambo {
 

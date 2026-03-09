@@ -15,7 +15,7 @@
  *   double y = rambo::math::log(x);
  */
 
-#include "backend.hpp"
+#include "config.hpp"
 
 namespace rambo {
 namespace math {

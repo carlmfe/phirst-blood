@@ -10,8 +10,8 @@
  * that computes the physics quantity from 4-momenta.
  */
 
-#include "pal/backend.hpp"
-#include "pal/math.hpp"
+#include "backend/config.hpp"
+#include "backend/math.hpp"
 
 namespace rambo {
 

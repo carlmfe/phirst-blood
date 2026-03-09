@@ -19,7 +19,7 @@
  * - grid_stride_reduce(): Generic parallel reduction primitive
  */
 
-#include "backend.hpp"
+#include "config.hpp"
 #include "math.hpp"
 #include <cstdint>
 #include <vector>

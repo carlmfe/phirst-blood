@@ -14,10 +14,10 @@
  * encapsulated in a work functor that is passed to the generic primitive.
  */
 
-#include "pal/math.hpp"
-#include "pal/random.hpp"
+#include "backend/math.hpp"
+#include "backend/random.hpp"
 #include "phase_space.hpp"
-#include "pal/parallel.hpp"
+#include "backend/parallel.hpp"
 
 namespace rambo {
 
