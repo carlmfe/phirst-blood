@@ -109,7 +109,7 @@ private:
                     // Create generator once per thread - pre-computes mass-dependent quantities
                     PhaseSpaceGenerator<NumParticles, Algorithm> rambo(cmEnergy, deviceMasses);
                     
-                    int64_t gridSize = item.get_global_range(0);
+                    int64_t gridSize = static_cast<int64_t>(globalSize);
                     while (idx < nEvents) {
                         double momenta[NumParticles][4];
                         double logWeight = rambo(rngState, momenta);

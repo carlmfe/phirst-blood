@@ -82,6 +82,10 @@ struct RamboAlgorithm {
         initializeMasses(masses);
     }
 
+    /**
+     * Initialize mass-dependent quantities. Can be called to update masses.
+     * @param masses Pointer to array of particle masses (length nParticles).
+     */
     KOKKOS_FUNCTION
     void initializeMasses(const double* masses) {
         totalMass = 0.0;
@@ -94,13 +98,52 @@ struct RamboAlgorithm {
         totalMassSq = totalMass * totalMass;
     }
 
+    /**
+     * Generic Newton-Raphson solver for finding roots of f(x) = 0.
+     * @tparam FuncType Callable returning f(x).
+     * @tparam DerivType Callable returning f'(x).
+     * @tparam ClampType Callable to clamp x to valid bounds (optional).
+     * @param x Initial guess; updated in-place with the solution.
+     * @param f Function whose root is sought.
+     * @param df Derivative of f.
+     * @param tol Convergence tolerance on |f(x)|.
+     * @param maxIter Maximum iterations.
+     * @param clamp Function to clamp x after each step.
+     * @return Number of iterations used.
+     */
+    template <typename FuncType, typename DerivType, typename ClampType>
+    KOKKOS_INLINE_FUNCTION
+    static auto newtonSolve(double& x, FuncType f, DerivType df,
+                            double tol, int maxIter, ClampType clamp) -> int {
+        for (int iter = 0; iter <= maxIter; ++iter) {
+            double fVal = f(x);
+            if (Kokkos::fabs(fVal) <= tol) return iter;
+            double dfVal = df(x);
+            if (dfVal == 0.0) return maxIter + 1;
+            x = x - fVal / dfVal;
+            clamp(x);
+        }
+        return maxIter + 1;
+    }
+
+    /// Newton solver without clamping.
+    template <typename FuncType, typename DerivType>
+    KOKKOS_INLINE_FUNCTION
+    static auto newtonSolve(double& x, FuncType f, DerivType df,
+                            double tol, int maxIter) -> int {
+        return newtonSolve(x, f, df, tol, maxIter, [](double&) {});
+    }
+
 public:
     /**
      * Generate an n-particle phase-space point.
      * @param cmEnergy Total center-of-mass energy available.
-     * @param r Array of `4*nParticles` uniform random numbers in [0,1).
-     * @param momenta Output array of shape `[nParticles][4]`.
+     * @param r Array of `4*nParticles` uniform random numbers in [0,1) (per-particle layout).
+     * @param momenta Output array of shape `[nParticles][4]` where index 0 is energy and
+     *                 indices 1..3 are px, py, pz respectively.
      * @return Natural logarithm of the phase-space weight. Returns 0.0 on failure.
+     * 
+     * Note: Uses pre-computed mass quantities. Call initializeMasses() first if masses changed.
      */
     KOKKOS_INLINE_FUNCTION
     auto generate(double cmEnergy, const double r[4 * nParticles], 
@@ -148,7 +191,7 @@ public:
         }
 
         double logWeight = logPiOver2;
-        if (nParticles != 2) {
+        if constexpr (nParticles != 2) {
             logWeight += (2.0 * nParticles - 4.0) * Kokkos::log(cmEnergy) + zCoeffFinal;
         }
 
@@ -172,23 +215,31 @@ public:
             momSq[i] = p[i][0] * p[i][0];
         }
 
-        int iteration = 0;
         double x = xMax;
         double accuracyGoal = cmEnergy * tolerance;
 
-        while (true) {
-            double f = -cmEnergy;
-            double df = 0.0;
-            double x2 = x * x;
-            for (int i = 0; i < nParticles; ++i) {
-                energies[i] = Kokkos::sqrt(massSq[i] + x2 * momSq[i]);
-                f += energies[i];
-                df += momSq[i] / energies[i];
-            }
-            if (Kokkos::fabs(f) <= accuracyGoal) break;
-            if (++iteration > maxIterations) break;
-            x = x - f / (df * x);
-        }
+        // Newton solve for conformal scaling factor x
+        newtonSolve(x,
+            [&](double xVal) {
+                double f = -cmEnergy;
+                double x2 = xVal * xVal;
+                for (int i = 0; i < nParticles; ++i) {
+                    energies[i] = Kokkos::sqrt(massSq[i] + x2 * momSq[i]);
+                    f += energies[i];
+                }
+                return f;
+            },
+            [&](double xVal) {
+                double df = 0.0;
+                double x2 = xVal * xVal;
+                for (int i = 0; i < nParticles; ++i) {
+                    double e = Kokkos::sqrt(massSq[i] + x2 * momSq[i]);
+                    df += xVal * momSq[i] / e;
+                }
+                return df;
+            },
+            accuracyGoal, maxIterations
+        );
 
         for (int i = 0; i < nParticles; ++i) {
             virtMom[i] = x * p[i][0];
@@ -219,7 +270,8 @@ public:
     }
 
     /**
-     * RNG-based overload.
+     * RNG-based overload: fills a local random array from `rngState` then
+     * calls the main `generate(...)` overload.
      * @param cmEnergy Total center-of-mass energy available.
      * @param rngState Mutable RNG state (advanced by this call).
      * @param momenta Output array `[nParticles][4]` for generated 4-momenta.
@@ -271,14 +323,25 @@ struct RamboDietAlgorithm {
     int nMassive = 0;
     double massSq[nParticles] = {};
 
+    /**
+     * Default constructor for massless particles.
+     */
     KOKKOS_FUNCTION
     RamboDietAlgorithm() = default;
 
+    /**
+     * Constructor with masses for pre-computation.
+     * @param masses Pointer to array of particle masses (length nParticles).
+     */
     KOKKOS_FUNCTION
     explicit RamboDietAlgorithm(const double* masses) {
         initializeMasses(masses);
     }
 
+    /**
+     * Initialize mass-dependent quantities. Can be called to update masses.
+     * @param masses Pointer to array of particle masses (length nParticles).
+     */
     KOKKOS_FUNCTION
     void initializeMasses(const double* masses) {
         totalMass = 0.0;
@@ -291,14 +354,52 @@ struct RamboDietAlgorithm {
         totalMassSq = totalMass * totalMass;
     }
 
+    /**
+     * Generic Newton-Raphson solver for finding roots of f(x) = 0.
+     * @tparam FuncType Callable returning f(x).
+     * @tparam DerivType Callable returning f'(x).
+     * @tparam ClampType Callable to clamp x to valid bounds (optional).
+     * @param x Initial guess; updated in-place with the solution.
+     * @param f Function whose root is sought.
+     * @param df Derivative of f.
+     * @param tol Convergence tolerance on |f(x)|.
+     * @param maxIter Maximum iterations.
+     * @param clamp Function to clamp x after each step.
+     * @return Number of iterations used.
+     */
+    template <typename FuncType, typename DerivType, typename ClampType>
+    KOKKOS_INLINE_FUNCTION
+    static auto newtonSolve(double& x, FuncType f, DerivType df,
+                            double tol, int maxIter, ClampType clamp) -> int {
+        for (int iter = 0; iter <= maxIter; ++iter) {
+            double fVal = f(x);
+            if (Kokkos::fabs(fVal) <= tol) return iter;
+            double dfVal = df(x);
+            if (dfVal == 0.0) return maxIter + 1;
+            x = x - fVal / dfVal;
+            clamp(x);
+        }
+        return maxIter + 1;
+    }
+
+    /// Newton solver without clamping.
+    template <typename FuncType, typename DerivType>
+    KOKKOS_INLINE_FUNCTION
+    static auto newtonSolve(double& x, FuncType f, DerivType df,
+                            double tol, int maxIter) -> int {
+        return newtonSolve(x, f, df, tol, maxIter, [](double&) {});
+    }
+
 public:
     /**
      * Apply a Lorentz boost to a 4-vector `p` in-place.
+     * @param p Array `[E, px, py, pz]` (modified in-place).
+     * @param boostVec 3-component velocity vector `(beta_x, beta_y, beta_z)`.
      */
     KOKKOS_INLINE_FUNCTION
     auto boost(double p[4], const double* boostVec) const -> void {
         double b2 = boostVec[0]*boostVec[0] + boostVec[1]*boostVec[1] + boostVec[2]*boostVec[2];
-        if (b2 >= 1.0 || b2 <= 0.0) return;
+        if (b2 >= 1.0 || b2 <= 0.0) return; // Invalid boost; leave 'p' unchanged.
         double gamma = 1.0 / Kokkos::sqrt(1.0 - b2);
         double bDotP = boostVec[0]*p[1] + boostVec[1]*p[2] + boostVec[2]*p[3];
         double factor = (gamma - 1.0) * bDotP / b2 - gamma * p[0];
@@ -310,109 +411,158 @@ public:
     }
 
     /**
-     * Newton solve for the intermediate variable `u`.
+     * Evaluate the equation whose root is `u` (used by Newton iterations).
+     * f(u) = r - m*u^(m-1) + (m-1)*u^m = 0
+     * @param u Variable to evaluate.
+     * @param r Random parameter from RNG.
+     * @param m Dimension parameter (nParticles - index).
+     * @return Value of the equation at `u`.
      */
     KOKKOS_INLINE_FUNCTION
-    auto solveForU(double &u, double r, int index) const -> void {
-        int iteration = 0;
-        const int m = nParticles - index;
-        u = Kokkos::pow(r, 1.0 / static_cast<double>(m - 1));
-        if (u <= 0.0) u = 1e-12;
-        if (u >= 1.0) u = 1.0 - 1e-12;
-        while (true) {
-            double f = uEquation(u, r, index);
-            double df = dUEquation(u, index);
-            if (Kokkos::fabs(f) <= tolerance) break;
-            if (++iteration > maxIterations) break;
-            if (df == 0.0) break;
-            u = u - f / df;
-            if (u <= 0.0) u = 1e-12;
-            if (u >= 1.0) u = 1.0 - 1e-12;
-        }
-    }
-
-    KOKKOS_INLINE_FUNCTION
-    auto uEquation(double u, double r, int index) const -> double {
-        const int m = nParticles - index;
+    static auto uEquation(double u, double r, int m) -> double {
         return r - m * Kokkos::pow(u, m - 1) + (m - 1) * Kokkos::pow(u, m);
     }
 
+    /**
+     * Derivative of `uEquation` with respect to `u`.
+     * @param u Point at which to compute derivative.
+     * @param index Particle index affecting dimension.
+     * @return d/du uEquation(u)
+     */
     KOKKOS_INLINE_FUNCTION
-    auto dUEquation(double u, int index) const -> double {
-        const int m = nParticles - index;
+    static auto dUEquation(double u, int m) -> double {
         return m * (m - 1) * (-Kokkos::pow(u, m - 2) + Kokkos::pow(u, m - 1));
     }
 
     /**
+     * Newton solve for the intermediate variable `u` used in the Diet variant.
+     * @param u Initial guess on input; updated with the solution on output.
+     * @param r Uniform random number driving the equation.
+     * @param index Current particle index (affects equation dimension).
+     */
+    KOKKOS_INLINE_FUNCTION
+    auto solveForU(double& u, double r, int index) const -> void {
+        const int m = nParticles - index;
+        // Initial guess: u ~ r^(1/(m-1))
+        u = Kokkos::pow(r, 1.0 / static_cast<double>(m - 1));
+        
+        // Clamp to valid range (0, 1)
+        auto clampU = [](double& u) {
+            if (u <= 0.0) u = 1e-12;
+            if (u >= 1.0) u = 1.0 - 1e-12;
+        };
+        clampU(u);
+        
+        newtonSolve(u,
+            [r, m](double u) { return uEquation(u, r, m); },
+            [m](double u) { return dUEquation(u, m); },
+            tolerance, maxIterations, clampU
+        );
+    }
+
+    /**
      * Diet-variant generate using pre-computed masses.
+     * @param cmEnergy Center-of-mass energy.
+     * @param r Array of `3*nParticles-4` uniform random numbers.
+     * @param momenta Output array `[nParticles][4]` for generated 4-momenta.
+     * @return Natural logarithm of the phase-space weight.
+     * 
+     * Note: Uses pre-computed mass quantities. Call initializeMasses() first if masses changed.
      */
     KOKKOS_INLINE_FUNCTION
     auto generate(double cmEnergy, const double r[3 * nParticles - 4], 
                   double momenta[nParticles][4]) const -> double {
-        double QPrev[4]{cmEnergy, 0.0, 0.0, 0.0};
-        double QCurr[4]{cmEnergy, 0.0, 0.0, 0.0};
-        double MPrev = cmEnergy;
-        double MCurr = MPrev;
-        double u[nParticles > 2 ? nParticles - 2 : 1];
-        double cosTheta, sinTheta, phi;
-        double q;
-        double p[nParticles][4];
-        double boostVec[3];
 
         if (totalMass > cmEnergy) return -Kokkos::Experimental::infinity<double>::value;
+        
+        double p[nParticles][4];
 
-        // Generate phase space for massless particles first
-        for (int i = 1; i < nParticles; ++i) {
-            if (nParticles > 2) {
-                if (i < nParticles - 1) {
-                    const int m = nParticles - i;
-                    u[i - 1] = Kokkos::pow(r[i - 1], 1.0 / static_cast<double>(m - 1));
-                    solveForU(u[i - 1], r[i - 1], i);
-                    MCurr = u[i - 1] * MPrev;
-                } else {
-                    MCurr = 0.0;
+        // === Generate phase space for massless particles first ===
+        // N = 2 case is simple, with no intermediate masses
+        if constexpr (nParticles == 2) {
+            double cosTheta = 2.0 * r[0] - 1.0;
+            double sinTheta = Kokkos::sqrt(1.0 - cosTheta * cosTheta);
+            double phi = twoPi * r[1];
+            double q = 0.5 * cmEnergy;
+
+            p[0][0] = q;
+            p[0][1] = q * sinTheta * Kokkos::cos(phi);
+            p[0][2] = q * sinTheta * Kokkos::sin(phi);
+            p[0][3] = q * cosTheta;
+
+            p[1][0] = q;
+            p[1][1] = -p[0][1];
+            p[1][2] = -p[0][2];
+            p[1][3] = -p[0][3];
+        }
+        else {
+            double QPrev[4]{cmEnergy, 0.0, 0.0, 0.0};
+            double QCurr[4]{cmEnergy, 0.0, 0.0, 0.0};
+            double MPrev = cmEnergy;
+            double MCurr = MPrev;
+            double boostVec[3];
+            double cosTheta, sinTheta, phi, q;
+
+            // u determines intermediate mass ratios – only needed for N > 3
+            [[maybe_unused]] double u[nParticles > 3 ? nParticles - 2 : 1];
+
+            for (int i = 1; i < nParticles; ++i) {
+                if constexpr (nParticles == 3) {
+                    MCurr = (i == 1) ? (1.0 - Kokkos::sqrt(1.0 - r[0])) * MPrev : 0.0;
                 }
-            } else {
-                MCurr = 0.0;
+                else {
+                    if (i < nParticles - 1) {
+                        solveForU(u[i - 1], r[i - 1], i);
+                        MCurr = u[i - 1] * MPrev;
+                    } else {
+                        MCurr = 0.0;
+                    }
+                }
+
+                cosTheta = 2.0 * r[nParticles - 4 + 2 * i] - 1.0;
+                sinTheta = Kokkos::sqrt(1.0 - cosTheta * cosTheta);
+                phi = twoPi * r[nParticles - 3 + 2 * i];
+                q = 0.5 * (MPrev * MPrev - MCurr * MCurr) / MPrev;
+
+                p[i - 1][0] = q;
+                p[i - 1][1] = q * sinTheta * Kokkos::cos(phi);
+                p[i - 1][2] = q * sinTheta * Kokkos::sin(phi);
+                p[i - 1][3] = q * cosTheta;
+
+                QCurr[0] = Kokkos::sqrt(q * q + MCurr * MCurr);
+                QCurr[1] = -p[i - 1][1];
+                QCurr[2] = -p[i - 1][2];
+                QCurr[3] = -p[i - 1][3];
+    
+                if constexpr (nParticles > 2) {
+                    if (i > 1) {
+                        boostVec[0] = QPrev[1] / QPrev[0];
+                        boostVec[1] = QPrev[2] / QPrev[0];
+                        boostVec[2] = QPrev[3] / QPrev[0];
+                        boost(p[i - 1], boostVec);
+                        boost(QCurr, boostVec);
+                    }
+    
+                    MPrev = MCurr;
+                    for (int k = 0; k < 4; ++k) {
+                        QPrev[k] = QCurr[k];
+                    }
+                }
             }
-            cosTheta = 2.0 * r[nParticles - 4 + 2 * i] - 1.0;
-            sinTheta = Kokkos::sqrt(1.0 - cosTheta * cosTheta);
-            phi = twoPi * r[nParticles - 3 + 2 * i];
-            q = 0.5 * (MPrev * MPrev - MCurr * MCurr) / MPrev;
-            p[i - 1][0] = q;
-            p[i - 1][1] = q * sinTheta * Kokkos::cos(phi);
-            p[i - 1][2] = q * sinTheta * Kokkos::sin(phi);
-            p[i - 1][3] = q * cosTheta;
-            QCurr[0] = Kokkos::sqrt(p[i - 1][0] * p[i - 1][0] + MCurr * MCurr);
-            QCurr[1] = -p[i - 1][1];
-            QCurr[2] = -p[i - 1][2];
-            QCurr[3] = -p[i - 1][3];
 
-            if (nParticles > 2) {
-                if (i > 1) {
-                    boostVec[0] = QPrev[1] / QPrev[0];
-                    boostVec[1] = QPrev[2] / QPrev[0];
-                    boostVec[2] = QPrev[3] / QPrev[0];
-                    boost(p[i - 1], boostVec);
-                    boost(QCurr, boostVec);
-                }
-
-                MPrev = MCurr;
-                for (int k = 0; k < 4; ++k) {
-                    QPrev[k] = QCurr[k];
-                }
+            // Last particle
+            for (int k = 0; k < 4; ++k) {
+                p[nParticles - 1][k] = QCurr[k];
             }
         }
-        // Last particle
-        for (int k = 0; k < 4; ++k) {
-            p[nParticles - 1][k] = QCurr[k];
-        }
 
+        // === Compute weight for massless configuration ===
         double logWeight = logPiOver2;
-        if (nParticles > 2) {
+        if constexpr (nParticles > 2) {
             logWeight += (2.0 * nParticles - 4.0) * Kokkos::log(cmEnergy) + zCoeffFinal;
         }
 
+        // === If all particles ARE massless, we are done now ===
         if (nMassive == 0) {
             for (int i = 0; i < nParticles; ++i) {
                 for (int mu = 0; mu < 4; ++mu) {
@@ -422,7 +572,7 @@ public:
             return logWeight;
         }
 
-        // Make a conformal transformation to give particles mass
+        // === Make a conformal transformation to give particles mass ===
         double momSq[nParticles];
         double energies[nParticles];
         double virtMom[nParticles];
@@ -433,23 +583,31 @@ public:
             momSq[i] = p[i][0] * p[i][0];
         }
 
-        int iteration = 0;
         double x = xMax;
         double accuracyGoal = cmEnergy * tolerance;
 
-        while (true) {
-            double f = -cmEnergy;
-            double df = 0.0;
-            double x2 = x * x;
-            for (int i = 0; i < nParticles; ++i) {
-                energies[i] = Kokkos::sqrt(massSq[i] + x2 * momSq[i]);
-                f += energies[i];
-                df += momSq[i] / energies[i];
-            }
-            if (Kokkos::fabs(f) <= accuracyGoal) break;
-            if (++iteration > maxIterations) break;
-            x = x - f / (df * x);
-        }
+        // Newton solve for conformal scaling factor x
+        newtonSolve(x,
+            [&](double x) {
+                double f = -cmEnergy;
+                double x2 = x * x;
+                for (int i = 0; i < nParticles; ++i) {
+                    energies[i] = Kokkos::sqrt(massSq[i] + x2 * momSq[i]);
+                    f += energies[i];
+                }
+                return f;
+            },
+            [&](double x) {
+                double df = 0.0;
+                double x2 = x * x;
+                for (int i = 0; i < nParticles; ++i) {
+                    double e = Kokkos::sqrt(massSq[i] + x2 * momSq[i]);
+                    df += x * momSq[i] / e;
+                }
+                return df;
+            },
+            accuracyGoal, maxIterations
+        );
 
         for (int i = 0; i < nParticles; ++i) {
             virtMom[i] = x * p[i][0];
@@ -485,9 +643,8 @@ public:
     KOKKOS_INLINE_FUNCTION
     auto generate(double cmEnergy, uint64_t& rngState, 
                   double momenta[nParticles][4]) const -> double {
-        constexpr int numRandoms = 3 * nParticles - 4;
-        double r[numRandoms > 0 ? numRandoms : 1];
-        for (int i = 0; i < numRandoms; ++i) {
+        double r[3 * nParticles - 4];
+        for (int i = 0; i < 3 * nParticles - 4; ++i) {
             r[i] = uniformRandom(rngState);
         }
         return generate(cmEnergy, r, momenta);
@@ -538,7 +695,10 @@ struct PhaseSpaceGenerator {
 };
 
 template <int nParticles>
-using DefaultPhaseSpaceGenerator = PhaseSpaceGenerator<nParticles, RamboAlgorithm<nParticles>>;
+using DefaultPhaseSpaceGenerator = PhaseSpaceGenerator<nParticles, RamboDietAlgorithm<nParticles>>;
+
+using PhaseSpaceGenerator2D = PhaseSpaceGenerator<2, RamboDietAlgorithm<2>>;
+using PhaseSpaceGenerator3D = PhaseSpaceGenerator<3, RamboDietAlgorithm<3>>;
 
 } // namespace rambo
 

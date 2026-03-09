@@ -67,6 +67,10 @@ struct RamboAlgorithm {
         initializeMasses(masses);
     }
 
+    /**
+     * Initialize mass-dependent quantities. Can be called to update masses.
+     * @param masses Pointer to array of particle masses (length nParticles).
+     */
     ALPAKA_FN_HOST_ACC void initializeMasses(const double* masses) {
         totalMass = 0.0;
         nMassive = 0;
@@ -78,7 +82,53 @@ struct RamboAlgorithm {
         totalMassSq = totalMass * totalMass;
     }
 
+    /**
+     * Generic Newton-Raphson solver for finding roots of f(x) = 0.
+     * @tparam FuncType Callable returning f(x).
+     * @tparam DerivType Callable returning f'(x).
+     * @tparam ClampType Callable to clamp x to valid bounds (optional).
+     * @param x Initial guess; updated in-place with the solution.
+     * @param f Function whose root is sought.
+     * @param df Derivative of f.
+     * @param tol Convergence tolerance on |f(x)|.
+     * @param maxIter Maximum iterations.
+     * @param clamp Function to clamp x after each step.
+     * @return Number of iterations used.
+     */
+    template <typename FuncType, typename DerivType, typename ClampType>
+    ALPAKA_FN_HOST_ACC
+    static auto newtonSolve(double& x, FuncType f, DerivType df,
+                            double tol, int maxIter, ClampType clamp) -> int {
+        for (int iter = 0; iter <= maxIter; ++iter) {
+            double fVal = f(x);
+            if (std::fabs(fVal) <= tol) return iter;
+            double dfVal = df(x);
+            if (dfVal == 0.0) return maxIter + 1;
+            x = x - fVal / dfVal;
+            clamp(x);
+        }
+        return maxIter + 1;
+    }
+
+    /// Newton solver without clamping.
+    template <typename FuncType, typename DerivType>
+    ALPAKA_FN_HOST_ACC
+    static auto newtonSolve(double& x, FuncType f, DerivType df,
+                            double tol, int maxIter) -> int {
+        return newtonSolve(x, f, df, tol, maxIter, [](double&) {});
+    }
+
 public:
+    /**
+     * Generate an n-particle phase-space point.
+     * @param cmEnergy Total center-of-mass energy available.
+     * @param r Array of `4*nParticles` uniform random numbers in [0,1) (per-particle layout).
+     * @param momenta Output array of shape `[nParticles][4]` where index 0 is energy and
+     *                 indices 1..3 are px, py, pz respectively.
+     * @return Natural logarithm of the phase-space weight. Returns 0.0 on failure.
+     * 
+     * Note: Uses pre-computed mass quantities. Call initializeMasses() first if masses changed.
+     */
     ALPAKA_FN_HOST_ACC auto generate(double cmEnergy, const double r[4 * nParticles], 
                                      double momenta[][4]) const -> double {
         double q[nParticles][4];
@@ -147,26 +197,34 @@ public:
         for (int i = 0; i < nParticles; ++i) {
             momSq[i] = p[i][0] * p[i][0];
         }
-        
-        int iteration = 0;
+
         double x = xMax;
         double accuracyGoal = cmEnergy * tolerance;
-        
-        while (true) {
-            double f = -cmEnergy;
-            double df = 0.0;
-            double x2 = x * x;
-            for (int i = 0; i < nParticles; ++i) {
-                energies[i] = std::sqrt(massSq[i] + x2 * momSq[i]);
-                f += energies[i];
-                df += momSq[i] / energies[i];
-            }
-            if (std::fabs(f) <= accuracyGoal) break;
-            if (++iteration > maxIterations) break;
-            x = x - f / (df * x);
-        }
-        
-        for (int i = 0; i < nParticles; i++) {
+
+        // Newton solve for conformal scaling factor x
+        newtonSolve(x,
+            [&](double x) {
+                double f = -cmEnergy;
+                double x2 = x * x;
+                for (int i = 0; i < nParticles; ++i) {
+                    energies[i] = std::sqrt(massSq[i] + x2 * momSq[i]);
+                    f += energies[i];
+                }
+                return f;
+            },
+            [&](double x) {
+                double df = 0.0;
+                double x2 = x * x;
+                for (int i = 0; i < nParticles; ++i) {
+                    double e = std::sqrt(massSq[i] + x2 * momSq[i]);
+                    df += x * momSq[i] / e;
+                }
+                return df;
+            },
+            accuracyGoal, maxIterations
+        );
+
+        for (int i = 0; i < nParticles; ++i) {
             virtMom[i] = x * p[i][0];
             for (int k = 1; k < 4; k++) {
                 p[i][k] *= x;
@@ -194,6 +252,14 @@ public:
         return logWeight;
     }
 
+    /**
+     * RNG-based overload: fills a local random array from `rngState` then
+     * calls the main `generate(...)` overload.
+     * @param cmEnergy Total center-of-mass energy available.
+     * @param rngState Mutable RNG state (advanced by this call).
+     * @param momenta Output array `[nParticles][4]` for generated 4-momenta.
+     * @return Natural logarithm of the phase-space weight.
+     */
     ALPAKA_FN_HOST_ACC auto generate(double cmEnergy, uint64_t& rngState, 
                                      double momenta[][4]) const -> double {
         double r[4 * nParticles];
@@ -247,6 +313,10 @@ struct RamboDietAlgorithm {
         initializeMasses(masses);
     }
 
+    /**
+     * Initialize mass-dependent quantities. Can be called to update masses.
+     * @param masses Pointer to array of particle masses (length nParticles).
+     */
     ALPAKA_FN_HOST_ACC void initializeMasses(const double* masses) {
         totalMass = 0.0;
         nMassive = 0;
@@ -258,99 +328,195 @@ struct RamboDietAlgorithm {
         totalMassSq = totalMass * totalMass;
     }
 
-public:
-    ALPAKA_FN_HOST_ACC auto uEquation(double u, double r, int index) const -> double {
-        int m = nParticles - index;
-        return r - m * std::pow(u, m - 1) + (m - 1) * std::pow(u, m);
-    }
-
-    ALPAKA_FN_HOST_ACC auto dUEquation(double u, int index) const -> double {
-        int m = nParticles - index;
-        return m * (m - 1) * (-std::pow(u, m - 2) + std::pow(u, m - 1));
-    }
-
-    ALPAKA_FN_HOST_ACC inline void solveForU(double &u, double r, int index) const {
-        int iteration = 0;
-        int m = nParticles - index;
-        u = std::pow(r, 1.0 / static_cast<double>(m - 1));
-        if (u <= 0.0) u = 1e-12;
-        if (u >= 1.0) u = 1.0 - 1e-12;
-        while (true) {
-            double f = uEquation(u, r, index);
-            double df = dUEquation(u, index);
-            if (std::fabs(f) <= tolerance) break;
-            if (++iteration > maxIterations) break;
-            if (df == 0.0) break;
-            u = u - f / df;
-            if (u <= 0.0) u = 1e-12;
-            if (u >= 1.0) u = 1.0 - 1e-12;
+    /**
+     * Generic Newton-Raphson solver for finding roots of f(x) = 0.
+     * @tparam FuncType Callable returning f(x).
+     * @tparam DerivType Callable returning f'(x).
+     * @tparam ClampType Callable to clamp x to valid bounds (optional).
+     * @param x Initial guess; updated in-place with the solution.
+     * @param f Function whose root is sought.
+     * @param df Derivative of f.
+     * @param tol Convergence tolerance on |f(x)|.
+     * @param maxIter Maximum iterations.
+     * @param clamp Function to clamp x after each step.
+     * @return Number of iterations used.
+     */
+    template <typename FuncType, typename DerivType, typename ClampType>
+    ALPAKA_FN_HOST_ACC
+    static auto newtonSolve(double& x, FuncType f, DerivType df,
+                            double tol, int maxIter, ClampType clamp) -> int {
+        for (int iter = 0; iter <= maxIter; ++iter) {
+            double fVal = f(x);
+            if (std::fabs(fVal) <= tol) return iter;
+            double dfVal = df(x);
+            if (dfVal == 0.0) return maxIter + 1;
+            x = x - fVal / dfVal;
+            clamp(x);
         }
+        return maxIter + 1;
     }
 
-    ALPAKA_FN_HOST_ACC void boost_p(double p[4], const double* boostVec) const {
+    /// Newton solver without clamping.
+    template <typename FuncType, typename DerivType>
+    ALPAKA_FN_HOST_ACC
+    static auto newtonSolve(double& x, FuncType f, DerivType df,
+                            double tol, int maxIter) -> int {
+        return newtonSolve(x, f, df, tol, maxIter, [](double&) {});
+    }
+
+public:
+    /**
+     * Apply a Lorentz boost to a 4-vector `p` in-place.
+     * @param p Array `[E, px, py, pz]` (modified in-place).
+     * @param boostVec 3-component velocity vector `(beta_x, beta_y, beta_z)`.
+     */
+    ALPAKA_FN_HOST_ACC auto boost(double p[4], const double* boostVec) const -> void {
         double b2 = boostVec[0]*boostVec[0] + boostVec[1]*boostVec[1] + boostVec[2]*boostVec[2];
-        if (b2 >= 1.0 || b2 <= 0.0) return;
+        if (b2 >= 1.0 || b2 <= 0.0) return; // Invalid boost; leave 'p' unchanged.
         double gamma = 1.0 / std::sqrt(1.0 - b2);
         double bDotP = boostVec[0]*p[1] + boostVec[1]*p[2] + boostVec[2]*p[3];
         double factor = (gamma - 1.0) * bDotP / b2 - gamma * p[0];
+        
         p[0] = gamma * (p[0] - bDotP);
-        for (int k = 1; k < 4; ++k) p[k] += boostVec[k-1] * factor;
+        for (int k = 1; k < 4; ++k) {
+            p[k] += boostVec[k-1] * factor;
+        }
+    }
+
+    /**
+     * Evaluate the equation whose root is `u` (used by Newton iterations).
+     * f(u) = r - m*u^(m-1) + (m-1)*u^m = 0
+     * @param u Variable to evaluate.
+     * @param r Random parameter from RNG.
+     * @param m Dimension parameter (nParticles - index).
+     * @return Value of the equation at `u`.
+     */
+    ALPAKA_FN_HOST_ACC
+    static auto uEquation(double u, double r, int m) -> double {
+        return r - m * std::pow(u, m - 1) + (m - 1) * std::pow(u, m);
+    }
+
+    /**
+     * Derivative of `uEquation` with respect to `u`.
+     * @param u Point at which to compute derivative.
+     * @param index Particle index affecting dimension.
+     * @return d/du uEquation(u)
+     */
+    ALPAKA_FN_HOST_ACC
+    static auto dUEquation(double u, int m) -> double {
+        return m * (m - 1) * (-std::pow(u, m - 2) + std::pow(u, m - 1));
+    }
+
+    /**
+     * Newton solve for the intermediate variable `u` used in the Diet variant.
+     * @param u Initial guess on input; updated with the solution on output.
+     * @param r Uniform random number driving the equation.
+     * @param index Current particle index (affects equation dimension).
+     */
+    ALPAKA_FN_HOST_ACC
+    auto solveForU(double& u, double r, int index) const -> void {
+        const int m = nParticles - index;
+        // Initial guess: u ~ r^(1/(m-1))
+        u = std::pow(r, 1.0 / static_cast<double>(m - 1));
+        
+        // Clamp to valid range (0, 1)
+        auto clampU = [](double& u) {
+            if (u <= 0.0) u = 1e-12;
+            if (u >= 1.0) u = 1.0 - 1e-12;
+        };
+        clampU(u);
+        
+        newtonSolve(u,
+            [r, m](double u) { return uEquation(u, r, m); },
+            [m](double u) { return dUEquation(u, m); },
+            tolerance, maxIterations, clampU
+        );
     }
 
     ALPAKA_FN_HOST_ACC auto generate(double cmEnergy, const double r[3 * nParticles - 4],
                                      double momenta[nParticles][4]) const -> double {
-        double QPrev[4]; QPrev[0]=cmEnergy; QPrev[1]=QPrev[2]=QPrev[3]=0.0;
-        double QCurr[4];
-        double MPrev = cmEnergy;
-        double MCurr = MPrev;
-
+        if (totalMass > cmEnergy) return -std::numeric_limits<double>::infinity();
+        
         double p[nParticles][4];
-        double boostVec[3];
-        double u[(nParticles > 2) ? (nParticles - 2) : 1];
 
-        if (totalMass > cmEnergy) return -1e300;
+        // === Generate phase space for massless particles first ===
+        // N = 2 case is simple, with no intermediate masses
+        if constexpr (nParticles == 2) {
+            double cosTheta = 2.0 * r[0] - 1.0;
+            double sinTheta = std::sqrt(1.0 - cosTheta * cosTheta);
+            double phi = twoPi * r[1];
+            double q = 0.5 * cmEnergy;
 
-        for (int i = 1; i < nParticles; i++) {
-            if constexpr (nParticles > 2) {
-                if (i < nParticles - 1) {
-                    solveForU(u[i-1], r[i-1], i);
-                    MCurr = u[i-1] * MPrev;
-                } else {
-                    MCurr = 0.0;
+            p[0][0] = q;
+            p[0][1] = q * sinTheta * std::cos(phi);
+            p[0][2] = q * sinTheta * std::sin(phi);
+            p[0][3] = q * cosTheta;
+
+            p[1][0] = q;
+            p[1][1] = -p[0][1];
+            p[1][2] = -p[0][2];
+            p[1][3] = -p[0][3];
+        }
+        else {
+            double QPrev[4]{cmEnergy, 0.0, 0.0, 0.0};
+            double QCurr[4]{cmEnergy, 0.0, 0.0, 0.0};
+            double MPrev = cmEnergy;
+            double MCurr = MPrev;
+            double boostVec[3];
+            double cosTheta, sinTheta, phi, q;
+
+            // u determines intermediate mass ratios – only needed for N > 3
+            [[maybe_unused]] double u[nParticles > 3 ? nParticles - 2 : 1];
+    
+            for (int i = 1; i < nParticles; ++i) {
+                if constexpr (nParticles == 3) {
+                    MCurr = (i == 1) ? (1.0 - std::sqrt(1.0 - r[0])) * MPrev : 0.0;
                 }
-            } else {
-                MCurr = 0.0;
+                else {
+                    if (i < nParticles - 1) {
+                        solveForU(u[i - 1], r[i - 1], i);
+                        MCurr = u[i - 1] * MPrev;
+                    } else {
+                        MCurr = 0.0;
+                    }
+                }
+
+                cosTheta = 2.0 * r[nParticles - 4 + 2 * i] - 1.0;
+                sinTheta = std::sqrt(1.0 - cosTheta * cosTheta);
+                phi = twoPi * r[nParticles - 3 + 2 * i];
+                q = 0.5 * (MPrev * MPrev - MCurr * MCurr) / MPrev;
+
+                p[i - 1][0] = q;
+                p[i - 1][1] = q * sinTheta * std::cos(phi);
+                p[i - 1][2] = q * sinTheta * std::sin(phi);
+                p[i - 1][3] = q * cosTheta;
+
+                QCurr[0] = std::sqrt(q * q + MCurr * MCurr);
+                QCurr[1] = -p[i - 1][1];
+                QCurr[2] = -p[i - 1][2];
+                QCurr[3] = -p[i - 1][3];
+    
+                if constexpr (nParticles > 2) {
+                    if (i > 1) {
+                        boostVec[0] = QPrev[1] / QPrev[0];
+                        boostVec[1] = QPrev[2] / QPrev[0];
+                        boostVec[2] = QPrev[3] / QPrev[0];
+                        boost(p[i - 1], boostVec);
+                        boost(QCurr, boostVec);
+                    }
+    
+                    MPrev = MCurr;
+                    for (int k = 0; k < 4; ++k) {
+                        QPrev[k] = QCurr[k];
+                    }
+                }
             }
-
-            double cosTheta = 2.0 * r[nParticles - 4 + 2 * i] - 1.0;
-            double sinTheta = std::sqrt(std::fmax(0.0, 1.0 - cosTheta * cosTheta));
-            double phi = twoPi * r[nParticles - 3 + 2 * i];
-
-            double q = 0.5 * (MPrev * MPrev - MCurr * MCurr) / MPrev;
-            p[i-1][0] = q;
-            p[i-1][1] = q * sinTheta * std::cos(phi);
-            p[i-1][2] = q * sinTheta * std::sin(phi);
-            p[i-1][3] = q * cosTheta;
-
-            QCurr[0] = std::sqrt(p[i-1][0]*p[i-1][0] + MCurr*MCurr);
-            QCurr[1] = -p[i-1][1];
-            QCurr[2] = -p[i-1][2];
-            QCurr[3] = -p[i-1][3];
-
-            if constexpr (nParticles > 2) {
-                if (i > 1) {
-                    boostVec[0] = QPrev[1]/QPrev[0];
-                    boostVec[1] = QPrev[2]/QPrev[0];
-                    boostVec[2] = QPrev[3]/QPrev[0];
-                    boost_p(p[i-1], boostVec);
-                    boost_p(QCurr, boostVec);
-                }
-                MPrev = MCurr;
-                for (int k = 0; k < 4; k++) QPrev[k] = QCurr[k];
+    
+            // Last particle
+            for (int k = 0; k < 4; ++k) {
+                p[nParticles - 1][k] = QCurr[k];
             }
         }
-
-        for (int k = 0; k < 4; k++) p[nParticles-1][k] = QCurr[k];
 
         double logWeight = logPiOver2;
         if constexpr (nParticles > 2) {
@@ -370,28 +536,33 @@ public:
         double virtMom[nParticles];
 
         double cmEnergySq = cmEnergy * cmEnergy;
-        double xMax = std::sqrt(1.0 - totalMassSq / cmEnergySq);
+        double x = std::sqrt(1.0 - totalMassSq / cmEnergySq);
         for (int i = 0; i < nParticles; i++) {
             momSq[i] = p[i][0] * p[i][0];
         }
 
-        int iteration = 0;
-        double x = xMax;
         double accuracyGoal = cmEnergy * tolerance;
 
-        while (true) {
-            double f = -cmEnergy;
-            double df = 0.0;
-            double x2 = x * x;
-            for (int i = 0; i < nParticles; i++) {
-                energies[i] = std::sqrt(massSq[i] + x2 * momSq[i]);
-                f += energies[i];
-                df += momSq[i] / energies[i];
-            }
-            if (std::fabs(f) <= accuracyGoal) break;
-            if (++iteration > maxIterations) break;
-            x = x - f / (df * x);
-        }
+        // Use newtonSolve with lambdas that capture local arrays
+        newtonSolve(x,
+            [&](double x) {
+                double f = -cmEnergy;
+                double x2 = x * x;
+                for (int i = 0; i < nParticles; i++) {
+                    energies[i] = std::sqrt(massSq[i] + x2 * momSq[i]);
+                    f += energies[i];
+                }
+                return f;
+            },
+            [&](double x) {
+                double df = 0.0;
+                for (int i = 0; i < nParticles; i++) {
+                    df += x * momSq[i] / energies[i];
+                }
+                return df;
+            },
+            accuracyGoal, maxIterations
+        );
 
         for (int i = 0; i < nParticles; i++) {
             virtMom[i] = x * p[i][0];
