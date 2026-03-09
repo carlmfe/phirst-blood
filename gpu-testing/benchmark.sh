@@ -190,6 +190,13 @@ ALPAKA_OK=false
 CUDA_OK=false
 SYCL_OK=false
 
+# Unified "one" implementations
+ONE_SERIAL_OK=false
+ONE_CUDA_OK=false
+ONE_KOKKOS_OK=false
+ONE_SYCL_OK=false
+ONE_ALPAKA_OK=false
+
 if $SKIP_BUILD; then
     echo -e "${YELLOW}Skipping build phase (--build to build)${NC}"
     echo -e "Checking for existing executables..."
@@ -229,6 +236,45 @@ if $SKIP_BUILD; then
         SYCL_OK=true
     else
         echo -e "${RED}✗ SYCL executable not found${NC}"
+    fi
+    
+    # Check unified "one" executables
+    echo ""
+    echo -e "${YELLOW}Unified implementations:${NC}"
+    
+    if [ -x "$SCRIPT_DIR/one/build-serial/rambo_one" ]; then
+        echo -e "${GREEN}✓ One-Serial executable found${NC}"
+        ONE_SERIAL_OK=true
+    else
+        echo -e "${RED}✗ One-Serial executable not found${NC}"
+    fi
+    
+    if [ -x "$SCRIPT_DIR/one/build-cuda/rambo_one" ]; then
+        echo -e "${GREEN}✓ One-CUDA executable found${NC}"
+        ONE_CUDA_OK=true
+    else
+        echo -e "${RED}✗ One-CUDA executable not found${NC}"
+    fi
+    
+    if [ -x "$SCRIPT_DIR/one/build-kokkos/rambo_one" ]; then
+        echo -e "${GREEN}✓ One-Kokkos executable found${NC}"
+        ONE_KOKKOS_OK=true
+    else
+        echo -e "${RED}✗ One-Kokkos executable not found${NC}"
+    fi
+    
+    if [ -x "$SCRIPT_DIR/one/build-sycl/rambo_one" ]; then
+        echo -e "${GREEN}✓ One-SYCL executable found${NC}"
+        ONE_SYCL_OK=true
+    else
+        echo -e "${RED}✗ One-SYCL executable not found${NC}"
+    fi
+    
+    if [ -x "$SCRIPT_DIR/one/build-alpaka/rambo_one" ]; then
+        echo -e "${GREEN}✓ One-Alpaka executable found${NC}"
+        ONE_ALPAKA_OK=true
+    else
+        echo -e "${RED}✗ One-Alpaka executable not found${NC}"
     fi
 else
     # Base always builds (no dependencies)
@@ -291,6 +337,23 @@ if $SYCL_OK; then
     verify_gpu "SYCL" "$SCRIPT_DIR/sycl/build/rambo_sycl"
 fi
 
+# Unified "one" GPU verification
+if $ONE_CUDA_OK; then
+    verify_gpu "One-CUDA" "$SCRIPT_DIR/one/build-cuda/rambo_one"
+fi
+
+if $ONE_KOKKOS_OK; then
+    verify_gpu "One-Kokkos" "$SCRIPT_DIR/one/build-kokkos/rambo_one"
+fi
+
+if $ONE_SYCL_OK; then
+    verify_gpu "One-SYCL" "$SCRIPT_DIR/one/build-sycl/rambo_one"
+fi
+
+if $ONE_ALPAKA_OK; then
+    verify_gpu "One-Alpaka" "$SCRIPT_DIR/one/build-alpaka/rambo_one"
+fi
+
 echo -e "${CYAN}========================================${NC}"
 echo -e "${CYAN}Phase 3: Performance Benchmarks${NC}"
 echo -e "${CYAN}========================================${NC}"
@@ -302,6 +365,11 @@ KOKKOS_avg=0
 ALPAKA_avg=0
 CUDA_avg=0
 SYCL_avg=0
+ONE_SERIAL_avg=0
+ONE_CUDA_avg=0
+ONE_KOKKOS_avg=0
+ONE_SYCL_avg=0
+ONE_ALPAKA_avg=0
 
 if $BASE_OK; then
     run_benchmark "BASE" "$SCRIPT_DIR/base/build/rambo_base" "$NUM_RUNS"
@@ -321,6 +389,31 @@ fi
 
 if $SYCL_OK; then
     run_benchmark "SYCL" "$SCRIPT_DIR/sycl/build/rambo_sycl" "$NUM_RUNS"
+fi
+
+# Unified "one" benchmarks
+echo ""
+echo -e "${YELLOW}--- Unified Implementations ---${NC}"
+echo ""
+
+if $ONE_SERIAL_OK; then
+    run_benchmark "ONE_SERIAL" "$SCRIPT_DIR/one/build-serial/rambo_one" "$NUM_RUNS"
+fi
+
+if $ONE_CUDA_OK; then
+    run_benchmark "ONE_CUDA" "$SCRIPT_DIR/one/build-cuda/rambo_one" "$NUM_RUNS"
+fi
+
+if $ONE_KOKKOS_OK; then
+    run_benchmark "ONE_KOKKOS" "$SCRIPT_DIR/one/build-kokkos/rambo_one" "$NUM_RUNS"
+fi
+
+if $ONE_SYCL_OK; then
+    run_benchmark "ONE_SYCL" "$SCRIPT_DIR/one/build-sycl/rambo_one" "$NUM_RUNS"
+fi
+
+if $ONE_ALPAKA_OK; then
+    run_benchmark "ONE_ALPAKA" "$SCRIPT_DIR/one/build-alpaka/rambo_one" "$NUM_RUNS"
 fi
 
 echo -e "${CYAN}========================================${NC}"
@@ -350,6 +443,30 @@ fi
 
 if $SYCL_OK && [ "$SYCL_avg" -gt 0 ]; then
     printf "%-12s %15.2e %15.2e %15.2e\n" "SYCL" $SYCL_avg $SYCL_min $SYCL_max
+fi
+
+echo ""
+echo "Unified implementations:"
+printf "%-12s %15s %15s %15s\n" "--------" "----------" "---" "---"
+
+if $ONE_SERIAL_OK && [ "$ONE_SERIAL_avg" -gt 0 ]; then
+    printf "%-12s %15.2e %15.2e %15.2e\n" "One-Serial" $ONE_SERIAL_avg $ONE_SERIAL_min $ONE_SERIAL_max
+fi
+
+if $ONE_CUDA_OK && [ "$ONE_CUDA_avg" -gt 0 ]; then
+    printf "%-12s %15.2e %15.2e %15.2e\n" "One-CUDA" $ONE_CUDA_avg $ONE_CUDA_min $ONE_CUDA_max
+fi
+
+if $ONE_KOKKOS_OK && [ "$ONE_KOKKOS_avg" -gt 0 ]; then
+    printf "%-12s %15.2e %15.2e %15.2e\n" "One-Kokkos" $ONE_KOKKOS_avg $ONE_KOKKOS_min $ONE_KOKKOS_max
+fi
+
+if $ONE_SYCL_OK && [ "$ONE_SYCL_avg" -gt 0 ]; then
+    printf "%-12s %15.2e %15.2e %15.2e\n" "One-SYCL" $ONE_SYCL_avg $ONE_SYCL_min $ONE_SYCL_max
+fi
+
+if $ONE_ALPAKA_OK && [ "$ONE_ALPAKA_avg" -gt 0 ]; then
+    printf "%-12s %15.2e %15.2e %15.2e\n" "One-Alpaka" $ONE_ALPAKA_avg $ONE_ALPAKA_min $ONE_ALPAKA_max
 fi
 
 echo ""
@@ -383,6 +500,31 @@ if [ "$SYCL_avg" -gt "$max_avg" ]; then
     winner="SYCL"
 fi
 
+if [ "$ONE_SERIAL_avg" -gt "$max_avg" ]; then
+    max_avg=$ONE_SERIAL_avg
+    winner="One-Serial"
+fi
+
+if [ "$ONE_CUDA_avg" -gt "$max_avg" ]; then
+    max_avg=$ONE_CUDA_avg
+    winner="One-CUDA"
+fi
+
+if [ "$ONE_KOKKOS_avg" -gt "$max_avg" ]; then
+    max_avg=$ONE_KOKKOS_avg
+    winner="One-Kokkos"
+fi
+
+if [ "$ONE_SYCL_avg" -gt "$max_avg" ]; then
+    max_avg=$ONE_SYCL_avg
+    winner="One-SYCL"
+fi
+
+if [ "$ONE_ALPAKA_avg" -gt "$max_avg" ]; then
+    max_avg=$ONE_ALPAKA_avg
+    winner="One-Alpaka"
+fi
+
 echo -e "${GREEN}Fastest backend: ${winner} ($(printf "%.2e" $max_avg) events/sec)${NC}"
 echo ""
 
@@ -407,7 +549,29 @@ if [ "$max_avg" -gt 0 ]; then
     fi
     if $SYCL_OK && [ "$SYCL_avg" -gt 0 ]; then
         rel=$(echo "scale=1; $SYCL_avg * 100 / $max_avg" | bc)
-        printf "  SYCL:   %5.1f%%\n" $rel
+        printf "  SYCL:       %5.1f%%\n" $rel
+    fi
+    echo ""
+    echo "Unified:"
+    if $ONE_SERIAL_OK && [ "$ONE_SERIAL_avg" -gt 0 ]; then
+        rel=$(echo "scale=1; $ONE_SERIAL_avg * 100 / $max_avg" | bc)
+        printf "  One-Serial: %5.1f%%\n" $rel
+    fi
+    if $ONE_CUDA_OK && [ "$ONE_CUDA_avg" -gt 0 ]; then
+        rel=$(echo "scale=1; $ONE_CUDA_avg * 100 / $max_avg" | bc)
+        printf "  One-CUDA:   %5.1f%%\n" $rel
+    fi
+    if $ONE_KOKKOS_OK && [ "$ONE_KOKKOS_avg" -gt 0 ]; then
+        rel=$(echo "scale=1; $ONE_KOKKOS_avg * 100 / $max_avg" | bc)
+        printf "  One-Kokkos: %5.1f%%\n" $rel
+    fi
+    if $ONE_SYCL_OK && [ "$ONE_SYCL_avg" -gt 0 ]; then
+        rel=$(echo "scale=1; $ONE_SYCL_avg * 100 / $max_avg" | bc)
+        printf "  One-SYCL:   %5.1f%%\n" $rel
+    fi
+    if $ONE_ALPAKA_OK && [ "$ONE_ALPAKA_avg" -gt 0 ]; then
+        rel=$(echo "scale=1; $ONE_ALPAKA_avg * 100 / $max_avg" | bc)
+        printf "  One-Alpaka: %5.1f%%\n" $rel
     fi
 fi
 
