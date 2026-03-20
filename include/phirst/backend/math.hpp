@@ -1,6 +1,6 @@
 #pragma once
-#ifndef RAMBO_MATH_HPP
-#define RAMBO_MATH_HPP
+#ifndef PHIRST_MATH_HPP
+#define PHIRST_MATH_HPP
 
 /**
  * @file math.hpp
@@ -11,13 +11,13 @@
  * 
  * Usage:
  *   #include <phirst/math.hpp>
- *   double x = rambo::math::sqrt(2.0);
- *   double y = rambo::math::log(x);
+ *   double x = phirst::math::sqrt(2.0);
+ *   double y = phirst::math::log(x);
  */
 
 #include "config.hpp"
 
-namespace rambo {
+namespace phirst {
 namespace math {
 
 // =============================================================================
@@ -27,10 +27,10 @@ namespace math {
 /**
  * Square root.
  */
-RAMBO_INLINE auto sqrt(double x) -> double {
-#if defined(RAMBO_BACKEND_SYCL)
+PHIRST_INLINE auto sqrt(double x) -> double {
+#if defined(PHIRST_BACKEND_SYCL)
     return sycl::sqrt(x);
-#elif defined(RAMBO_BACKEND_KOKKOS)
+#elif defined(PHIRST_BACKEND_KOKKOS)
     return Kokkos::sqrt(x);
 #else
     return std::sqrt(x);
@@ -40,10 +40,10 @@ RAMBO_INLINE auto sqrt(double x) -> double {
 /**
  * Natural logarithm.
  */
-RAMBO_INLINE auto log(double x) -> double {
-#if defined(RAMBO_BACKEND_SYCL)
+PHIRST_INLINE auto log(double x) -> double {
+#if defined(PHIRST_BACKEND_SYCL)
     return sycl::log(x);
-#elif defined(RAMBO_BACKEND_KOKKOS)
+#elif defined(PHIRST_BACKEND_KOKKOS)
     return Kokkos::log(x);
 #else
     return std::log(x);
@@ -53,10 +53,10 @@ RAMBO_INLINE auto log(double x) -> double {
 /**
  * Exponential function.
  */
-RAMBO_INLINE auto exp(double x) -> double {
-#if defined(RAMBO_BACKEND_SYCL)
+PHIRST_INLINE auto exp(double x) -> double {
+#if defined(PHIRST_BACKEND_SYCL)
     return sycl::exp(x);
-#elif defined(RAMBO_BACKEND_KOKKOS)
+#elif defined(PHIRST_BACKEND_KOKKOS)
     return Kokkos::exp(x);
 #else
     return std::exp(x);
@@ -66,10 +66,10 @@ RAMBO_INLINE auto exp(double x) -> double {
 /**
  * Power function.
  */
-RAMBO_INLINE auto pow(double base, double exp) -> double {
-#if defined(RAMBO_BACKEND_SYCL)
+PHIRST_INLINE auto pow(double base, double exp) -> double {
+#if defined(PHIRST_BACKEND_SYCL)
     return sycl::pow(base, exp);
-#elif defined(RAMBO_BACKEND_KOKKOS)
+#elif defined(PHIRST_BACKEND_KOKKOS)
     return Kokkos::pow(base, exp);
 #else
     return std::pow(base, exp);
@@ -79,10 +79,10 @@ RAMBO_INLINE auto pow(double base, double exp) -> double {
 /**
  * Integer power (more efficient for integer exponents).
  */
-RAMBO_INLINE auto pow(double base, int exp) -> double {
-#if defined(RAMBO_BACKEND_SYCL)
+PHIRST_INLINE auto pow(double base, int exp) -> double {
+#if defined(PHIRST_BACKEND_SYCL)
     return sycl::pown(base, exp);
-#elif defined(RAMBO_BACKEND_KOKKOS)
+#elif defined(PHIRST_BACKEND_KOKKOS)
     return Kokkos::pow(base, static_cast<double>(exp));
 #else
     return std::pow(base, exp);
@@ -92,10 +92,10 @@ RAMBO_INLINE auto pow(double base, int exp) -> double {
 /**
  * Absolute value.
  */
-RAMBO_INLINE auto fabs(double x) -> double {
-#if defined(RAMBO_BACKEND_SYCL)
+PHIRST_INLINE auto fabs(double x) -> double {
+#if defined(PHIRST_BACKEND_SYCL)
     return sycl::fabs(x);
-#elif defined(RAMBO_BACKEND_KOKKOS)
+#elif defined(PHIRST_BACKEND_KOKKOS)
     return Kokkos::fabs(x);
 #else
     return std::fabs(x);
@@ -105,10 +105,10 @@ RAMBO_INLINE auto fabs(double x) -> double {
 /**
  * Maximum of two values.
  */
-RAMBO_INLINE auto fmax(double x, double y) -> double {
-#if defined(RAMBO_BACKEND_SYCL)
+PHIRST_INLINE auto fmax(double x, double y) -> double {
+#if defined(PHIRST_BACKEND_SYCL)
     return sycl::fmax(x, y);
-#elif defined(RAMBO_BACKEND_KOKKOS)
+#elif defined(PHIRST_BACKEND_KOKKOS)
     return Kokkos::fmax(x, y);
 #else
     return std::fmax(x, y);
@@ -118,10 +118,10 @@ RAMBO_INLINE auto fmax(double x, double y) -> double {
 /**
  * Minimum of two values.
  */
-RAMBO_INLINE auto fmin(double x, double y) -> double {
-#if defined(RAMBO_BACKEND_SYCL)
+PHIRST_INLINE auto fmin(double x, double y) -> double {
+#if defined(PHIRST_BACKEND_SYCL)
     return sycl::fmin(x, y);
-#elif defined(RAMBO_BACKEND_KOKKOS)
+#elif defined(PHIRST_BACKEND_KOKKOS)
     return Kokkos::fmin(x, y);
 #else
     return std::fmin(x, y);
@@ -135,10 +135,10 @@ RAMBO_INLINE auto fmin(double x, double y) -> double {
 /**
  * Sine.
  */
-RAMBO_INLINE auto sin(double x) -> double {
-#if defined(RAMBO_BACKEND_SYCL)
+PHIRST_INLINE auto sin(double x) -> double {
+#if defined(PHIRST_BACKEND_SYCL)
     return sycl::sin(x);
-#elif defined(RAMBO_BACKEND_KOKKOS)
+#elif defined(PHIRST_BACKEND_KOKKOS)
     return Kokkos::sin(x);
 #else
     return std::sin(x);
@@ -148,10 +148,10 @@ RAMBO_INLINE auto sin(double x) -> double {
 /**
  * Cosine.
  */
-RAMBO_INLINE auto cos(double x) -> double {
-#if defined(RAMBO_BACKEND_SYCL)
+PHIRST_INLINE auto cos(double x) -> double {
+#if defined(PHIRST_BACKEND_SYCL)
     return sycl::cos(x);
-#elif defined(RAMBO_BACKEND_KOKKOS)
+#elif defined(PHIRST_BACKEND_KOKKOS)
     return Kokkos::cos(x);
 #else
     return std::cos(x);
@@ -161,10 +161,10 @@ RAMBO_INLINE auto cos(double x) -> double {
 /**
  * Tangent.
  */
-RAMBO_INLINE auto tan(double x) -> double {
-#if defined(RAMBO_BACKEND_SYCL)
+PHIRST_INLINE auto tan(double x) -> double {
+#if defined(PHIRST_BACKEND_SYCL)
     return sycl::tan(x);
-#elif defined(RAMBO_BACKEND_KOKKOS)
+#elif defined(PHIRST_BACKEND_KOKKOS)
     return Kokkos::tan(x);
 #else
     return std::tan(x);
@@ -174,10 +174,10 @@ RAMBO_INLINE auto tan(double x) -> double {
 /**
  * Arc sine.
  */
-RAMBO_INLINE auto asin(double x) -> double {
-#if defined(RAMBO_BACKEND_SYCL)
+PHIRST_INLINE auto asin(double x) -> double {
+#if defined(PHIRST_BACKEND_SYCL)
     return sycl::asin(x);
-#elif defined(RAMBO_BACKEND_KOKKOS)
+#elif defined(PHIRST_BACKEND_KOKKOS)
     return Kokkos::asin(x);
 #else
     return std::asin(x);
@@ -187,10 +187,10 @@ RAMBO_INLINE auto asin(double x) -> double {
 /**
  * Arc cosine.
  */
-RAMBO_INLINE auto acos(double x) -> double {
-#if defined(RAMBO_BACKEND_SYCL)
+PHIRST_INLINE auto acos(double x) -> double {
+#if defined(PHIRST_BACKEND_SYCL)
     return sycl::acos(x);
-#elif defined(RAMBO_BACKEND_KOKKOS)
+#elif defined(PHIRST_BACKEND_KOKKOS)
     return Kokkos::acos(x);
 #else
     return std::acos(x);
@@ -200,10 +200,10 @@ RAMBO_INLINE auto acos(double x) -> double {
 /**
  * Arc tangent.
  */
-RAMBO_INLINE auto atan(double x) -> double {
-#if defined(RAMBO_BACKEND_SYCL)
+PHIRST_INLINE auto atan(double x) -> double {
+#if defined(PHIRST_BACKEND_SYCL)
     return sycl::atan(x);
-#elif defined(RAMBO_BACKEND_KOKKOS)
+#elif defined(PHIRST_BACKEND_KOKKOS)
     return Kokkos::atan(x);
 #else
     return std::atan(x);
@@ -213,10 +213,10 @@ RAMBO_INLINE auto atan(double x) -> double {
 /**
  * Two-argument arc tangent.
  */
-RAMBO_INLINE auto atan2(double y, double x) -> double {
-#if defined(RAMBO_BACKEND_SYCL)
+PHIRST_INLINE auto atan2(double y, double x) -> double {
+#if defined(PHIRST_BACKEND_SYCL)
     return sycl::atan2(y, x);
-#elif defined(RAMBO_BACKEND_KOKKOS)
+#elif defined(PHIRST_BACKEND_KOKKOS)
     return Kokkos::atan2(y, x);
 #else
     return std::atan2(y, x);
@@ -246,6 +246,6 @@ inline constexpr double e = 2.71828182845904523536028747135266250;
 inline constexpr double ln2 = 0.69314718055994530941723212145817657;
 
 } // namespace math
-} // namespace rambo
+} // namespace phirst
 
-#endif // RAMBO_MATH_HPP
+#endif // PHIRST_MATH_HPP
