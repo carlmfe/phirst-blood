@@ -13,6 +13,9 @@ set_property(CACHE PHIRST_BACKEND PROPERTY STRINGS SERIAL CUDA KOKKOS ALPAKA SYC
 
 message(STATUS "PHIRST Backend: ${PHIRST_BACKEND}")
 
+# Name of Drell-Yan example executable based on backend
+string(TOLOWER "ex_drell_yan_${PHIRST_BACKEND}" EXENAME)
+
 # =============================================================================
 # Common Settings
 # =============================================================================
@@ -38,9 +41,9 @@ if(PHIRST_BACKEND STREQUAL "SERIAL")
     set(CMAKE_CXX_STANDARD 20)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
     
-    add_executable(ex_drell_yan ${SOURCES})
-    target_include_directories(ex_drell_yan PRIVATE include)
-    target_compile_definitions(ex_drell_yan PRIVATE PHIRST_BACKEND_SERIAL)
+    add_executable(${EXENAME} ${SOURCES})
+    target_include_directories(${EXENAME} PRIVATE include)
+    target_compile_definitions(${EXENAME} PRIVATE PHIRST_BACKEND_SERIAL)
     
 elseif(PHIRST_BACKEND STREQUAL "CUDA")
     # ---------------------------
@@ -63,10 +66,10 @@ elseif(PHIRST_BACKEND STREQUAL "CUDA")
     # For CUDA, rename drell_yan.cpp to drell_yan.cu
     set_source_files_properties(examples/drell_yan.cpp PROPERTIES LANGUAGE CUDA)
     
-    add_executable(ex_drell_yan ${SOURCES})
-    target_include_directories(ex_drell_yan PRIVATE include)
-    target_compile_definitions(ex_drell_yan PRIVATE PHIRST_BACKEND_CUDA)
-    target_compile_options(ex_drell_yan PRIVATE
+    add_executable(${EXENAME} ${SOURCES})
+    target_include_directories(${EXENAME} PRIVATE include)
+    target_compile_definitions(${EXENAME} PRIVATE PHIRST_BACKEND_CUDA)
+    target_compile_options(${EXENAME} PRIVATE
         $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>
     )
     
@@ -79,10 +82,10 @@ elseif(PHIRST_BACKEND STREQUAL "KOKKOS")
     
     find_package(Kokkos REQUIRED)
     
-    add_executable(ex_drell_yan ${SOURCES})
-    target_include_directories(ex_drell_yan PRIVATE include)
-    target_compile_definitions(ex_drell_yan PRIVATE PHIRST_BACKEND_KOKKOS)
-    target_link_libraries(ex_drell_yan PRIVATE Kokkos::kokkos)
+    add_executable(${EXENAME} ${SOURCES})
+    target_include_directories(${EXENAME} PRIVATE include)
+    target_compile_definitions(${EXENAME} PRIVATE PHIRST_BACKEND_KOKKOS)
+    target_link_libraries(${EXENAME} PRIVATE Kokkos::kokkos)
     
 elseif(PHIRST_BACKEND STREQUAL "ALPAKA")
     # ---------------------------
@@ -112,10 +115,10 @@ elseif(PHIRST_BACKEND STREQUAL "ALPAKA")
     
     find_package(alpaka REQUIRED)
     
-    alpaka_add_executable(ex_drell_yan ${SOURCES})
-    target_include_directories(ex_drell_yan PRIVATE include)
-    target_compile_definitions(ex_drell_yan PRIVATE PHIRST_BACKEND_ALPAKA)
-    target_link_libraries(ex_drell_yan PRIVATE alpaka::alpaka)
+    alpaka_add_executable(${EXENAME} ${SOURCES})
+    target_include_directories(${EXENAME} PRIVATE include)
+    target_compile_definitions(${EXENAME} PRIVATE PHIRST_BACKEND_ALPAKA)
+    target_link_libraries(${EXENAME} PRIVATE alpaka::alpaka)
     
 elseif(PHIRST_BACKEND STREQUAL "SYCL")
     # ---------------------------
@@ -132,25 +135,25 @@ elseif(PHIRST_BACKEND STREQUAL "SYCL")
     
     message(STATUS "SYCL device backend: ${SYCL_BACKEND}")
     
-    add_executable(ex_drell_yan ${SOURCES})
-    target_include_directories(ex_drell_yan PRIVATE include)
-    target_compile_definitions(ex_drell_yan PRIVATE PHIRST_BACKEND_SYCL)
+    add_executable(${EXENAME} ${SOURCES})
+    target_include_directories(${EXENAME} PRIVATE include)
+    target_compile_definitions(${EXENAME} PRIVATE PHIRST_BACKEND_SYCL)
     
     if(SYCL_BACKEND STREQUAL "CUDA")
         set(CUDA_GPU_ARCH "sm_70" CACHE STRING "CUDA GPU architecture")
-        target_compile_options(ex_drell_yan PRIVATE
+        target_compile_options(${EXENAME} PRIVATE
             -fsycl
             -fsycl-targets=nvptx64-nvidia-cuda
             -Xsycl-target-backend
             --cuda-gpu-arch=${CUDA_GPU_ARCH}
         )
-        target_link_options(ex_drell_yan PRIVATE
+        target_link_options(${EXENAME} PRIVATE
             -fsycl
             -fsycl-targets=nvptx64-nvidia-cuda
         )
     else()
-        target_compile_options(ex_drell_yan PRIVATE -fsycl)
-        target_link_options(ex_drell_yan PRIVATE -fsycl)
+        target_compile_options(${EXENAME} PRIVATE -fsycl)
+        target_link_options(${EXENAME} PRIVATE -fsycl)
     endif()
     
 else()
