@@ -1,6 +1,6 @@
 #pragma once
-#ifndef RAMBO_PARALLEL_HPP
-#define RAMBO_PARALLEL_HPP
+#ifndef PHIRST_PARALLEL_HPP
+#define PHIRST_PARALLEL_HPP
 
 /**
  * @file parallel.hpp
@@ -25,18 +25,18 @@
 #include <vector>
 
 // Backend-specific includes
-#if defined(RAMBO_BACKEND_SYCL)
+#if defined(PHIRST_BACKEND_SYCL)
     #include <sycl/sycl.hpp>
-#elif defined(RAMBO_BACKEND_ALPAKA)
+#elif defined(PHIRST_BACKEND_ALPAKA)
     #include <alpaka/alpaka.hpp>
     #include <optional>
-#elif defined(RAMBO_BACKEND_KOKKOS)
+#elif defined(PHIRST_BACKEND_KOKKOS)
     // Kokkos included via backend.hpp
-#elif defined(RAMBO_BACKEND_CUDA)
+#elif defined(PHIRST_BACKEND_CUDA)
     // CUDA included via compilation
 #endif
 
-namespace rambo {
+namespace phirst {
 
 // =============================================================================
 // Execution Space Tags
@@ -45,7 +45,7 @@ namespace rambo {
 struct HostSpace {};
 struct DeviceSpace {};
 
-#if defined(RAMBO_BACKEND_SERIAL)
+#if defined(PHIRST_BACKEND_SERIAL)
     using DefaultSpace = HostSpace;
 #else
     using DefaultSpace = DeviceSpace;
@@ -55,12 +55,12 @@ struct DeviceSpace {};
 // Backend-Specific Type Aliases
 // =============================================================================
 
-#if defined(RAMBO_BACKEND_KOKKOS)
+#if defined(PHIRST_BACKEND_KOKKOS)
     using DefaultExecutionSpace = Kokkos::DefaultExecutionSpace;
     using DefaultMemorySpace = Kokkos::DefaultExecutionSpace::memory_space;
     using HostExecutionSpace = Kokkos::DefaultHostExecutionSpace;
     using HostMemorySpace = Kokkos::HostSpace;
-#elif defined(RAMBO_BACKEND_ALPAKA)
+#elif defined(PHIRST_BACKEND_ALPAKA)
     #if defined(ALPAKA_ACC_GPU_CUDA_ENABLED)
         using AlpakaTag = alpaka::TagGpuCudaRt;
     #elif defined(ALPAKA_ACC_CPU_B_OMP2_T_SEQ_ENABLED)
@@ -100,7 +100,7 @@ struct GridConfig {
 // RNG Seeding Helper
 // =============================================================================
 
-RAMBO_HOST_DEVICE
+PHIRST_HOST_DEVICE
 inline uint64_t seed_for_thread(uint64_t baseSeed, int64_t threadIdx) {
     uint64_t seed = baseSeed ^ (static_cast<uint64_t>(threadIdx) * 2685821657736338717ULL);
     return (seed == 0) ? baseSeed + 1 : seed;
@@ -112,7 +112,7 @@ inline uint64_t seed_for_thread(uint64_t baseSeed, int64_t threadIdx) {
 // Note: DeviceBuffer requires separate class definitions per backend due to
 // fundamentally different underlying storage types (pointers, Views, Buffers).
 
-#if defined(RAMBO_BACKEND_SERIAL)
+#if defined(PHIRST_BACKEND_SERIAL)
 
 template <typename T>
 class DeviceBuffer {
@@ -139,7 +139,7 @@ private:
     int64_t size_;
 };
 
-#elif defined(RAMBO_BACKEND_KOKKOS)
+#elif defined(PHIRST_BACKEND_KOKKOS)
 
 template <typename T>
 class DeviceBuffer {
@@ -157,7 +157,7 @@ private:
     int64_t size_;
 };
 
-#elif defined(RAMBO_BACKEND_SYCL)
+#elif defined(PHIRST_BACKEND_SYCL)
 
 template <typename T>
 class DeviceBuffer {
@@ -193,7 +193,7 @@ private:
     sycl::queue* queue_;
 };
 
-#elif defined(RAMBO_BACKEND_ALPAKA)
+#elif defined(PHIRST_BACKEND_ALPAKA)
 
 template <typename T>
 class DeviceBuffer {
@@ -216,7 +216,7 @@ private:
     int64_t size_;
 };
 
-#elif defined(RAMBO_BACKEND_CUDA)
+#elif defined(PHIRST_BACKEND_CUDA)
 
 template <typename T>
 class DeviceBuffer {
@@ -252,19 +252,19 @@ private:
 
 template <typename T>
 void deep_copy(DeviceBuffer<T>& dest, const T* hostSrc, int64_t n) {
-#if defined(RAMBO_BACKEND_SERIAL)
+#if defined(PHIRST_BACKEND_SERIAL)
     for (int64_t i = 0; i < n; ++i) dest[i] = hostSrc[i];
     
-#elif defined(RAMBO_BACKEND_KOKKOS)
+#elif defined(PHIRST_BACKEND_KOKKOS)
     auto hostView = Kokkos::View<const T*, Kokkos::HostSpace, 
                                   Kokkos::MemoryTraits<Kokkos::Unmanaged>>(hostSrc, n);
     auto destSubview = Kokkos::subview(dest.view(), std::make_pair(int64_t(0), n));
     Kokkos::deep_copy(destSubview, hostView);
     
-#elif defined(RAMBO_BACKEND_SYCL)
+#elif defined(PHIRST_BACKEND_SYCL)
     dest.queue().memcpy(dest.data(), hostSrc, n * sizeof(T)).wait();
     
-#elif defined(RAMBO_BACKEND_ALPAKA)
+#elif defined(PHIRST_BACKEND_ALPAKA)
     auto devHost = alpaka::getDevByIdx(alpaka::PlatformCpu{}, 0);
     auto devAcc = alpaka::getDevByIdx(alpaka::Platform<AlpakaAcc>{}, 0);
     AlpakaQueue queue(devAcc);
@@ -274,27 +274,27 @@ void deep_copy(DeviceBuffer<T>& dest, const T* hostSrc, int64_t n) {
     alpaka::memcpy(queue, dest.buffer(), hostBuf, extent);
     alpaka::wait(queue);
     
-#elif defined(RAMBO_BACKEND_CUDA)
+#elif defined(PHIRST_BACKEND_CUDA)
     cudaMemcpy(dest.data(), hostSrc, n * sizeof(T), cudaMemcpyHostToDevice);
 #endif
 }
 
 template <typename T>
 void deep_copy(T* hostDest, const DeviceBuffer<T>& src, int64_t n) {
-#if defined(RAMBO_BACKEND_SERIAL)
+#if defined(PHIRST_BACKEND_SERIAL)
     for (int64_t i = 0; i < n; ++i) hostDest[i] = src[i];
     
-#elif defined(RAMBO_BACKEND_KOKKOS)
+#elif defined(PHIRST_BACKEND_KOKKOS)
     auto hostView = Kokkos::View<T*, Kokkos::HostSpace,
                                   Kokkos::MemoryTraits<Kokkos::Unmanaged>>(hostDest, n);
     auto srcSubview = Kokkos::subview(src.view(), std::make_pair(int64_t(0), n));
     Kokkos::deep_copy(hostView, srcSubview);
     
-#elif defined(RAMBO_BACKEND_SYCL)
+#elif defined(PHIRST_BACKEND_SYCL)
     auto& queue = const_cast<DeviceBuffer<T>&>(src).queue();
     queue.memcpy(hostDest, src.data(), n * sizeof(T)).wait();
     
-#elif defined(RAMBO_BACKEND_ALPAKA)
+#elif defined(PHIRST_BACKEND_ALPAKA)
     auto devHost = alpaka::getDevByIdx(alpaka::PlatformCpu{}, 0);
     auto devAcc = alpaka::getDevByIdx(alpaka::Platform<AlpakaAcc>{}, 0);
     AlpakaQueue queue(devAcc);
@@ -304,7 +304,7 @@ void deep_copy(T* hostDest, const DeviceBuffer<T>& src, int64_t n) {
     alpaka::wait(queue);
     for (int64_t i = 0; i < n; ++i) hostDest[i] = hostBuf[i];
     
-#elif defined(RAMBO_BACKEND_CUDA)
+#elif defined(PHIRST_BACKEND_CUDA)
     cudaMemcpy(hostDest, src.data(), n * sizeof(T), cudaMemcpyDeviceToHost);
 #endif
 }
@@ -315,13 +315,13 @@ void deep_copy(T* hostDest, const DeviceBuffer<T>& src, int64_t n) {
 
 template <typename T>
 void fill_buffer(DeviceBuffer<T>& buf, T value) {
-#if defined(RAMBO_BACKEND_SERIAL)
+#if defined(PHIRST_BACKEND_SERIAL)
     for (int64_t i = 0; i < buf.size(); ++i) buf[i] = value;
     
-#elif defined(RAMBO_BACKEND_KOKKOS)
+#elif defined(PHIRST_BACKEND_KOKKOS)
     Kokkos::deep_copy(buf.view(), value);
     
-#elif defined(RAMBO_BACKEND_SYCL)
+#elif defined(PHIRST_BACKEND_SYCL)
     if (value == T{}) {
         buf.queue().memset(buf.data(), 0, buf.size() * sizeof(T)).wait();
     } else {
@@ -330,7 +330,7 @@ void fill_buffer(DeviceBuffer<T>& buf, T value) {
         }).wait();
     }
     
-#elif defined(RAMBO_BACKEND_ALPAKA)
+#elif defined(PHIRST_BACKEND_ALPAKA)
     auto devAcc = alpaka::getDevByIdx(alpaka::Platform<AlpakaAcc>{}, 0);
     AlpakaQueue queue(devAcc);
     if (value == T{}) {
@@ -344,7 +344,7 @@ void fill_buffer(DeviceBuffer<T>& buf, T value) {
     }
     alpaka::wait(queue);
     
-#elif defined(RAMBO_BACKEND_CUDA)
+#elif defined(PHIRST_BACKEND_CUDA)
     if (value == T{}) {
         cudaMemset(buf.data(), 0, buf.size() * sizeof(T));
     } else {
@@ -359,15 +359,15 @@ void fill_buffer(DeviceBuffer<T>& buf, T value) {
 // =============================================================================
 
 inline void fence() {
-#if defined(RAMBO_BACKEND_SERIAL)
+#if defined(PHIRST_BACKEND_SERIAL)
     // No-op
-#elif defined(RAMBO_BACKEND_KOKKOS)
+#elif defined(PHIRST_BACKEND_KOKKOS)
     Kokkos::fence();
-#elif defined(RAMBO_BACKEND_SYCL)
+#elif defined(PHIRST_BACKEND_SYCL)
     // SYCL uses .wait() on individual operations
-#elif defined(RAMBO_BACKEND_ALPAKA)
+#elif defined(PHIRST_BACKEND_ALPAKA)
     // Alpaka uses blocking queue
-#elif defined(RAMBO_BACKEND_CUDA)
+#elif defined(PHIRST_BACKEND_CUDA)
     cudaDeviceSynchronize();
 #endif
 }
@@ -388,30 +388,30 @@ T host_reduce(const T* data, int64_t n) {
 // =============================================================================
 // Device-callable atomic add wrapper. 
 // Note: Alpaka requires the accelerator object, so uses alpaka::atomicAdd directly.
-// Note: SYCL requires atomic_ref, which is verbose - use RAMBO_SYCL_ATOMIC_ADD macro.
+// Note: SYCL requires atomic_ref, which is verbose - use PHIRST_SYCL_ATOMIC_ADD macro.
 
-#if defined(RAMBO_BACKEND_SERIAL)
+#if defined(PHIRST_BACKEND_SERIAL)
 template <typename T>
 inline void atomic_add(T* ptr, T val) { *ptr += val; }
 
-#elif defined(RAMBO_BACKEND_KOKKOS)
+#elif defined(PHIRST_BACKEND_KOKKOS)
 template <typename T>
 KOKKOS_INLINE_FUNCTION void atomic_add(T* ptr, T val) { Kokkos::atomic_add(ptr, val); }
 
-#elif defined(RAMBO_BACKEND_CUDA)
+#elif defined(PHIRST_BACKEND_CUDA)
 template <typename T>
 __device__ void atomic_add(T* ptr, T val) { atomicAdd(ptr, val); }
 
-#elif defined(RAMBO_BACKEND_SYCL)
+#elif defined(PHIRST_BACKEND_SYCL)
 // SYCL atomic_ref is verbose; provide macro for use in device code
-#define RAMBO_SYCL_ATOMIC_ADD(ptr, val) do { \
+#define PHIRST_SYCL_ATOMIC_ADD(ptr, val) do { \
     sycl::atomic_ref<decltype(val), sycl::memory_order::relaxed, \
         sycl::memory_scope::device, \
         sycl::access::address_space::global_space> ref(*(ptr)); \
     ref.fetch_add(val); \
 } while(0)
 
-#elif defined(RAMBO_BACKEND_ALPAKA)
+#elif defined(PHIRST_BACKEND_ALPAKA)
 // Alpaka needs acc object; use alpaka::atomicAdd(acc, ptr, val, hierarchy::Grids{}) directly
 #endif
 
@@ -421,7 +421,7 @@ __device__ void atomic_add(T* ptr, T val) { atomicAdd(ptr, val); }
 // Internal grid-stride loop + atomic reduction logic.
 // These are defined at namespace scope for backends requiring kernel structs.
 
-#if defined(RAMBO_BACKEND_ALPAKA)
+#if defined(PHIRST_BACKEND_ALPAKA)
 
 template <typename WorkFunctor, typename T>
 struct AlpakaGridStrideKernel {
@@ -448,7 +448,7 @@ struct AlpakaGridStrideKernel {
     }
 };
 
-#elif defined(RAMBO_BACKEND_CUDA)
+#elif defined(PHIRST_BACKEND_CUDA)
 
 template <typename WorkFunctor, typename T>
 __global__ void cuda_grid_stride_kernel(WorkFunctor work, T* globalResult1, T* globalResult2, 
@@ -476,17 +476,17 @@ __global__ void cuda_grid_stride_kernel(WorkFunctor work, T* globalResult1, T* g
 template <typename WorkFunctor, typename T>
 void launch_reduction_kernel(const GridConfig& cfg, int64_t nWork, const WorkFunctor& work,
                               T* ptr1, T* ptr2
-#if defined(RAMBO_BACKEND_SYCL)
+#if defined(PHIRST_BACKEND_SYCL)
                               , sycl::queue& queue
 #endif
                               ) {
-#if defined(RAMBO_BACKEND_SERIAL)
+#if defined(PHIRST_BACKEND_SERIAL)
     // Sequential - no parallelism, direct accumulation
     for (int64_t i = 0; i < nWork; ++i) {
         work(i, *ptr1, *ptr2);
     }
     
-#elif defined(RAMBO_BACKEND_KOKKOS)
+#elif defined(PHIRST_BACKEND_KOKKOS)
     const int64_t totalThreads = cfg.totalThreads;
     Kokkos::parallel_for("grid_stride_reduce", cfg.totalThreads,
         KOKKOS_LAMBDA(const int64_t threadIdx) {
@@ -501,7 +501,7 @@ void launch_reduction_kernel(const GridConfig& cfg, int64_t nWork, const WorkFun
     );
     Kokkos::fence();
     
-#elif defined(RAMBO_BACKEND_SYCL)
+#elif defined(PHIRST_BACKEND_SYCL)
     const int64_t totalThreads = cfg.totalThreads;
     size_t globalSize = static_cast<size_t>(cfg.totalThreads);
     size_t localSize = static_cast<size_t>(cfg.blockSize);
@@ -515,14 +515,14 @@ void launch_reduction_kernel(const GridConfig& cfg, int64_t nWork, const WorkFun
                 for (int64_t idx = threadIdx; idx < nWork; idx += totalThreads) {
                     work(idx, localAcc1, localAcc2);
                 }
-                RAMBO_SYCL_ATOMIC_ADD(ptr1, localAcc1);
-                RAMBO_SYCL_ATOMIC_ADD(ptr2, localAcc2);
+                PHIRST_SYCL_ATOMIC_ADD(ptr1, localAcc1);
+                PHIRST_SYCL_ATOMIC_ADD(ptr2, localAcc2);
             }
         );
     });
     queue.wait();
     
-#elif defined(RAMBO_BACKEND_ALPAKA)
+#elif defined(PHIRST_BACKEND_ALPAKA)
     auto devAcc = alpaka::getDevByIdx(alpaka::Platform<AlpakaAcc>{}, 0);
     AlpakaQueue queue(devAcc);
     
@@ -536,7 +536,7 @@ void launch_reduction_kernel(const GridConfig& cfg, int64_t nWork, const WorkFun
     alpaka::exec<AlpakaAcc>(queue, workDiv, kernel);
     alpaka::wait(queue);
     
-#elif defined(RAMBO_BACKEND_CUDA)
+#elif defined(PHIRST_BACKEND_CUDA)
     cuda_grid_stride_kernel<<<cfg.numBlocks, cfg.blockSize>>>(
         work, ptr1, ptr2, nWork, cfg.totalThreads
     );
@@ -561,13 +561,13 @@ template <typename WorkFunctor, typename T>
 void grid_stride_reduce(int64_t nWork, const WorkFunctor& work, T& result1, T& result2) {
     auto cfg = GridConfig::compute(nWork);
     
-#if defined(RAMBO_BACKEND_SERIAL)
+#if defined(PHIRST_BACKEND_SERIAL)
     // Serial: no buffers needed, accumulate directly
     result1 = T{};
     result2 = T{};
     launch_reduction_kernel(cfg, nWork, work, &result1, &result2);
     
-#elif defined(RAMBO_BACKEND_SYCL)
+#elif defined(PHIRST_BACKEND_SYCL)
     // SYCL: needs queue passed to kernel launcher
     DeviceBuffer<T> deviceResult1(1);
     DeviceBuffer<T> deviceResult2(1);
@@ -594,6 +594,6 @@ void grid_stride_reduce(int64_t nWork, const WorkFunctor& work, T& result1, T& r
 #endif
 }
 
-} // namespace rambo
+} // namespace phirst
 
-#endif // RAMBO_PARALLEL_HPP
+#endif // PHIRST_PARALLEL_HPP

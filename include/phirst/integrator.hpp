@@ -1,6 +1,6 @@
  #pragma once
-#ifndef RAMBO_INTEGRATOR_HPP
-#define RAMBO_INTEGRATOR_HPP
+#ifndef PHIRST_INTEGRATOR_HPP
+#define PHIRST_INTEGRATOR_HPP
 
 /**
  * @file integrator.hpp
@@ -19,7 +19,7 @@
 #include "phase_space.hpp"
 #include "backend/parallel.hpp"
 
-namespace rambo {
+namespace phirst {
 
 // =============================================================================
 // Integration Result
@@ -66,11 +66,11 @@ struct MCWorkFunctor {
     double cmEnergy;
     uint64_t baseSeed;
     
-    RAMBO_HOST_DEVICE
+    PHIRST_HOST_DEVICE
     MCWorkFunctor(const Generator& gen, const Integrand& integ, double E, uint64_t seed)
         : generator(gen), integrand(integ), cmEnergy(E), baseSeed(seed) {}
     
-    RAMBO_HOST_DEVICE
+    PHIRST_HOST_DEVICE
     void operator()(int64_t workIdx, double& acc1, double& acc2) const {
         // Compute per-event RNG seed from work index
         uint64_t rngState = seed_for_thread(baseSeed, workIdx);
@@ -146,6 +146,6 @@ private:
     Integrand integrand_;
 };
 
-} // namespace rambo
+} // namespace phirst
 
-#endif // RAMBO_INTEGRATOR_HPP
+#endif // PHIRST_INTEGRATOR_HPP

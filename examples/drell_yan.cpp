@@ -8,12 +8,12 @@
 #include <cstdint>
 #include <algorithm>
 
-#include <rambo/rambo.hpp>
+#include <phirst/phirst.hpp>
 
 // =============================================================================
 // Benchmark helper
 // =============================================================================
-template <typename Integrand, int nParticles, typename Algorithm = rambo::RamboAlgorithm<nParticles>>
+template <typename Integrand, int nParticles, typename Algorithm = phirst::RamboAlgorithm<nParticles>>
 void runBenchmark(const std::string& backendName, 
                   int64_t nEvents, 
                   double cmEnergy, 
@@ -30,7 +30,7 @@ void runBenchmark(const std::string& backendName,
     
     // Warmup run
     {
-        rambo::RamboIntegrator<Integrand, nParticles, Algorithm> warmup(
+        phirst::RamboIntegrator<Integrand, nParticles, Algorithm> warmup(
             std::min(nEvents / 10, int64_t(10000)), integrand);
         warmup.run(cmEnergy, masses, mean, error, seed);
     }
@@ -38,7 +38,7 @@ void runBenchmark(const std::string& backendName,
     // Timed run
     auto start = std::chrono::high_resolution_clock::now();
 
-    rambo::RamboIntegrator<Integrand, nParticles, Algorithm> integrator(nEvents, integrand);
+    phirst::RamboIntegrator<Integrand, nParticles, Algorithm> integrator(nEvents, integrand);
     integrator.run(cmEnergy, masses, mean, error, seed);
     
     auto end = std::chrono::high_resolution_clock::now();
@@ -59,10 +59,10 @@ int main(int argc, char* argv[]) {
     // -------------------------------------------------------------------------
     // Backend Initialization
     // -------------------------------------------------------------------------
-#if defined(RAMBO_BACKEND_KOKKOS)
+#if defined(PHIRST_BACKEND_KOKKOS)
     Kokkos::initialize(argc, argv);
     {
-#elif defined(RAMBO_BACKEND_SYCL)
+#elif defined(PHIRST_BACKEND_SYCL)
     sycl::queue queue{sycl::default_selector_v};
     std::cout << "SYCL Device: " << queue.get_device().get_info<sycl::info::device::name>() << std::endl;
 #endif
@@ -72,12 +72,12 @@ int main(int argc, char* argv[]) {
     const double cmEnergy = 91.2;
     constexpr int nParticles = 2;
     
-    std::cout << "======================================" << std::endl;
-    std::cout << "RAMBO Monte Carlo Integrator (One)" << std::endl;
-    std::cout << "======================================" << std::endl;
-    std::cout << "Library version: " << rambo::VERSION_MAJOR << "."
-              << rambo::VERSION_MINOR << "." << rambo::VERSION_PATCH << std::endl;
-    std::cout << "Compiled backend: " << rambo::BACKEND_NAME << std::endl;
+    std::cout << "========================================" << std::endl;
+    std::cout << "RAMBO Monte Carlo Integrator : Drell-Yan" << std::endl;
+    std::cout << "========================================" << std::endl;
+    std::cout << "Library version: " << phirst::VERSION_MAJOR << "."
+              << phirst::VERSION_MINOR << "." << phirst::VERSION_PATCH << std::endl;
+    std::cout << "Compiled backend: " << phirst::BACKEND_NAME << std::endl;
     std::cout << "Number of events: " << nEvents << std::endl;
     std::cout << "Random seed: " << seed << std::endl;
     std::cout << "Center-of-mass energy: " << cmEnergy << " GeV" << std::endl;
@@ -89,7 +89,7 @@ int main(int argc, char* argv[]) {
     
     const double quarkCharge = 2.0 / 3.0;
     const double alphaEM = 1.0 / 137.035999;
-    rambo::DrellYanIntegrand integrand(quarkCharge, alphaEM);
+    phirst::DrellYanIntegrand integrand(quarkCharge, alphaEM);
     
     std::cout << "----------------------------------------" << std::endl;
     std::cout << "Drell-Yan Process: q qbar -> gamma* -> e+ e-" << std::endl;
@@ -98,15 +98,15 @@ int main(int argc, char* argv[]) {
     std::cout << "Fine structure constant (alpha): " << alphaEM << std::endl;
     std::cout << std::endl;
     
-    runBenchmark<rambo::DrellYanIntegrand, nParticles, rambo::RamboAlgorithm<nParticles>>(
-        rambo::BACKEND_NAME, nEvents, cmEnergy, masses, integrand, seed);
+    runBenchmark<phirst::DrellYanIntegrand, nParticles, phirst::RamboAlgorithm<nParticles>>(
+        phirst::BACKEND_NAME, nEvents, cmEnergy, masses, integrand, seed);
     
     // Analytic verification
     std::cout << "========================================" << std::endl;
     std::cout << "Analytic Verification" << std::endl;
     std::cout << "========================================" << std::endl;
     double s = cmEnergy * cmEnergy;
-    double analyticSigma = rambo::DrellYanIntegrand::analyticCrossSection(s, quarkCharge, alphaEM);
+    double analyticSigma = phirst::DrellYanIntegrand::analyticCrossSection(s, quarkCharge, alphaEM);
     
     std::cout << std::scientific << std::setprecision(6);
     std::cout << "Analytic cross-section:" << std::endl;
@@ -124,7 +124,7 @@ int main(int argc, char* argv[]) {
     // -------------------------------------------------------------------------
     // Backend Finalization
     // -------------------------------------------------------------------------
-#if defined(RAMBO_BACKEND_KOKKOS)
+#if defined(PHIRST_BACKEND_KOKKOS)
     }
     Kokkos::finalize();
 #endif

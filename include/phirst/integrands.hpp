@@ -1,6 +1,6 @@
 #pragma once
-#ifndef RAMBO_INTEGRANDS_HPP
-#define RAMBO_INTEGRANDS_HPP
+#ifndef PHIRST_INTEGRANDS_HPP
+#define PHIRST_INTEGRANDS_HPP
 
 /**
  * @file integrands.hpp
@@ -13,7 +13,7 @@
 #include "backend/config.hpp"
 #include "backend/math.hpp"
 
-namespace rambo {
+namespace phirst {
 
 // =============================================================================
 // Eggholder integrand
@@ -26,10 +26,10 @@ namespace rambo {
 struct EggholderIntegrand {
     double lambdaSquared;
     
-    RAMBO_HOST_DEVICE EggholderIntegrand(double lambda = 1000000.0) 
+    PHIRST_HOST_DEVICE EggholderIntegrand(double lambda = 1000000.0) 
         : lambdaSquared(lambda) {}
     
-    RAMBO_HOST_DEVICE auto evaluate(const double momenta[][4]) const -> double {
+    PHIRST_HOST_DEVICE auto evaluate(const double momenta[][4]) const -> double {
         double s12 = 0.0, s13 = 0.0, s23 = 0.0;
         
         for (int mu = 0; mu < 4; ++mu) {
@@ -59,9 +59,9 @@ struct EggholderIntegrand {
 struct ConstantIntegrand {
     double value;
     
-    RAMBO_HOST_DEVICE ConstantIntegrand(double v = 1.0) : value(v) {}
+    PHIRST_HOST_DEVICE ConstantIntegrand(double v = 1.0) : value(v) {}
     
-    RAMBO_HOST_DEVICE auto evaluate(const double momenta[][4]) const -> double {
+    PHIRST_HOST_DEVICE auto evaluate(const double momenta[][4]) const -> double {
         (void)momenta;
         return value;
     }
@@ -79,10 +79,10 @@ struct DrellYanIntegrand {
     double quarkCharge;
     double alphaEM;
     
-    RAMBO_HOST_DEVICE DrellYanIntegrand(double eq = 2.0/3.0, double alpha = 1.0/137.035999)
+    PHIRST_HOST_DEVICE DrellYanIntegrand(double eq = 2.0/3.0, double alpha = 1.0/137.035999)
         : quarkCharge(eq), alphaEM(alpha) {}
     
-    RAMBO_HOST_DEVICE auto evaluate(const double momenta[][4]) const -> double {
+    PHIRST_HOST_DEVICE auto evaluate(const double momenta[][4]) const -> double {
         double Ptot[4];
         for (int mu = 0; mu < 4; ++mu) {
             Ptot[mu] = momenta[0][mu] + momenta[1][mu];
@@ -119,7 +119,7 @@ struct DrellYanIntegrand {
      * @param alpha Fine structure constant.
      * @return Cross-section in millibarns.
      */
-    RAMBO_HOST_DEVICE static auto analyticCrossSection(double s, double eq, double alpha) -> double {
+    PHIRST_HOST_DEVICE static auto analyticCrossSection(double s, double eq, double alpha) -> double {
         constexpr double hbarc2 = 0.3893793656;
         return 4.0 * math::pi * alpha * alpha * eq * eq / (3.0 * s) * hbarc2;
     }
@@ -137,9 +137,9 @@ template <int nParticles>
 struct MandelstamSIntegrand {
     double scale;
     
-    RAMBO_HOST_DEVICE MandelstamSIntegrand(double s = 1.0) : scale(s) {}
+    PHIRST_HOST_DEVICE MandelstamSIntegrand(double s = 1.0) : scale(s) {}
     
-    RAMBO_HOST_DEVICE auto evaluate(const double momenta[][4]) const -> double {
+    PHIRST_HOST_DEVICE auto evaluate(const double momenta[][4]) const -> double {
         double Ptot[4] = {0.0, 0.0, 0.0, 0.0};
         for (int i = 0; i < nParticles; ++i) {
             for (int mu = 0; mu < 4; ++mu) {
@@ -154,6 +154,6 @@ struct MandelstamSIntegrand {
     }
 };
 
-} // namespace rambo
+} // namespace phirst
 
-#endif // RAMBO_INTEGRANDS_HPP
+#endif // PHIRST_INTEGRANDS_HPP
