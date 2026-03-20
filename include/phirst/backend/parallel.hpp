@@ -290,11 +290,11 @@ void deep_copy(T* hostDest, const DeviceBuffer<T>& src, int64_t n) {
     auto srcSubview = Kokkos::subview(src.view(), std::make_pair(int64_t(0), n));
     Kokkos::deep_copy(hostView, srcSubview);
     
-#elif defined(PHIRSTT_BACKEND_SYCL)
+#elif defined(PHIRST_BACKEND_SYCL)
     auto& queue = const_cast<DeviceBuffer<T>&>(src).queue();
     queue.memcpy(hostDest, src.data(), n * sizeof(T)).wait();
     
-#elif defined(PHIRSTT_BACKEND_ALPAKA)
+#elif defined(PHIRST_BACKEND_ALPAKA)
     auto devHost = alpaka::getDevByIdx(alpaka::PlatformCpu{}, 0);
     auto devAcc = alpaka::getDevByIdx(alpaka::Platform<AlpakaAcc>{}, 0);
     AlpakaQueue queue(devAcc);
@@ -304,7 +304,7 @@ void deep_copy(T* hostDest, const DeviceBuffer<T>& src, int64_t n) {
     alpaka::wait(queue);
     for (int64_t i = 0; i < n; ++i) hostDest[i] = hostBuf[i];
     
-#elif defined(PHIRSTT_BACKEND_CUDA)
+#elif defined(PHIRST_BACKEND_CUDA)
     cudaMemcpy(hostDest, src.data(), n * sizeof(T), cudaMemcpyDeviceToHost);
 #endif
 }
@@ -315,13 +315,13 @@ void deep_copy(T* hostDest, const DeviceBuffer<T>& src, int64_t n) {
 
 template <typename T>
 void fill_buffer(DeviceBuffer<T>& buf, T value) {
-#if defined(PHIRSTT_BACKEND_SERIAL)
+#if defined(PHIRST_BACKEND_SERIAL)
     for (int64_t i = 0; i < buf.size(); ++i) buf[i] = value;
     
-#elif defined(PHIRSTTTTT_BACKEND_KOKKOS)
+#elif defined(PHIRST_BACKEND_KOKKOS)
     Kokkos::deep_copy(buf.view(), value);
     
-#elif defined(PHIRSTTTT_BACKEND_SYCL)
+#elif defined(PHIRST_BACKEND_SYCL)
     if (value == T{}) {
         buf.queue().memset(buf.data(), 0, buf.size() * sizeof(T)).wait();
     } else {
