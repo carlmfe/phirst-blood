@@ -10,7 +10,7 @@
  * on both host and device code across all supported backends.
  * 
  * Usage:
- *   #include <rambo/math.hpp>
+ *   #include <phirst/math.hpp>
  *   double x = rambo::math::sqrt(2.0);
  *   double y = rambo::math::log(x);
  */

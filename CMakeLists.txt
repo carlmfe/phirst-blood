@@ -25,7 +25,7 @@ endif()
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Source files
-set(SOURCES main.cpp)
+set(SOURCES examples/drell_yan.cpp)
 
 # =============================================================================
 # Backend-Specific Configuration
@@ -38,9 +38,9 @@ if(RAMBO_BACKEND STREQUAL "SERIAL")
     set(CMAKE_CXX_STANDARD 20)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
     
-    add_executable(rambo_one ${SOURCES})
-    target_include_directories(rambo_one PRIVATE include)
-    target_compile_definitions(rambo_one PRIVATE RAMBO_BACKEND_SERIAL)
+    add_executable(ex_drell_yan ${SOURCES})
+    target_include_directories(ex_drell_yan PRIVATE include)
+    target_compile_definitions(ex_drell_yan PRIVATE RAMBO_BACKEND_SERIAL)
     
 elseif(RAMBO_BACKEND STREQUAL "CUDA")
     # ---------------------------
@@ -60,13 +60,13 @@ elseif(RAMBO_BACKEND STREQUAL "CUDA")
     set(CMAKE_CUDA_STANDARD_REQUIRED ON)
     set(CMAKE_CUDA_ARCHITECTURES "native" CACHE STRING "CUDA architectures")
     
-    # For CUDA, rename main.cpp to main.cu
-    set_source_files_properties(main.cpp PROPERTIES LANGUAGE CUDA)
+    # For CUDA, rename drell_yan.cpp to drell_yan.cu
+    set_source_files_properties(examples/drell_yan.cpp PROPERTIES LANGUAGE CUDA)
     
-    add_executable(rambo_one ${SOURCES})
-    target_include_directories(rambo_one PRIVATE include)
-    target_compile_definitions(rambo_one PRIVATE RAMBO_BACKEND_CUDA)
-    target_compile_options(rambo_one PRIVATE
+    add_executable(ex_drell_yan ${SOURCES})
+    target_include_directories(ex_drell_yan PRIVATE include)
+    target_compile_definitions(ex_drell_yan PRIVATE RAMBO_BACKEND_CUDA)
+    target_compile_options(ex_drell_yan PRIVATE
         $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>
     )
     
@@ -79,10 +79,10 @@ elseif(RAMBO_BACKEND STREQUAL "KOKKOS")
     
     find_package(Kokkos REQUIRED)
     
-    add_executable(rambo_one ${SOURCES})
-    target_include_directories(rambo_one PRIVATE include)
-    target_compile_definitions(rambo_one PRIVATE RAMBO_BACKEND_KOKKOS)
-    target_link_libraries(rambo_one PRIVATE Kokkos::kokkos)
+    add_executable(ex_drell_yan ${SOURCES})
+    target_include_directories(ex_drell_yan PRIVATE include)
+    target_compile_definitions(ex_drell_yan PRIVATE RAMBO_BACKEND_KOKKOS)
+    target_link_libraries(ex_drell_yan PRIVATE Kokkos::kokkos)
     
 elseif(RAMBO_BACKEND STREQUAL "ALPAKA")
     # ---------------------------
@@ -112,10 +112,10 @@ elseif(RAMBO_BACKEND STREQUAL "ALPAKA")
     
     find_package(alpaka REQUIRED)
     
-    alpaka_add_executable(rambo_one ${SOURCES})
-    target_include_directories(rambo_one PRIVATE include)
-    target_compile_definitions(rambo_one PRIVATE RAMBO_BACKEND_ALPAKA)
-    target_link_libraries(rambo_one PRIVATE alpaka::alpaka)
+    alpaka_add_executable(ex_drell_yan ${SOURCES})
+    target_include_directories(ex_drell_yan PRIVATE include)
+    target_compile_definitions(ex_drell_yan PRIVATE RAMBO_BACKEND_ALPAKA)
+    target_link_libraries(ex_drell_yan PRIVATE alpaka::alpaka)
     
 elseif(RAMBO_BACKEND STREQUAL "SYCL")
     # ---------------------------
@@ -132,25 +132,25 @@ elseif(RAMBO_BACKEND STREQUAL "SYCL")
     
     message(STATUS "SYCL device backend: ${SYCL_BACKEND}")
     
-    add_executable(rambo_one ${SOURCES})
-    target_include_directories(rambo_one PRIVATE include)
-    target_compile_definitions(rambo_one PRIVATE RAMBO_BACKEND_SYCL)
+    add_executable(ex_drell_yan ${SOURCES})
+    target_include_directories(ex_drell_yan PRIVATE include)
+    target_compile_definitions(ex_drell_yan PRIVATE RAMBO_BACKEND_SYCL)
     
     if(SYCL_BACKEND STREQUAL "CUDA")
         set(CUDA_GPU_ARCH "sm_70" CACHE STRING "CUDA GPU architecture")
-        target_compile_options(rambo_one PRIVATE
+        target_compile_options(ex_drell_yan PRIVATE
             -fsycl
             -fsycl-targets=nvptx64-nvidia-cuda
             -Xsycl-target-backend
             --cuda-gpu-arch=${CUDA_GPU_ARCH}
         )
-        target_link_options(rambo_one PRIVATE
+        target_link_options(ex_drell_yan PRIVATE
             -fsycl
             -fsycl-targets=nvptx64-nvidia-cuda
         )
     else()
-        target_compile_options(rambo_one PRIVATE -fsycl)
-        target_link_options(rambo_one PRIVATE -fsycl)
+        target_compile_options(ex_drell_yan PRIVATE -fsycl)
+        target_link_options(ex_drell_yan PRIVATE -fsycl)
     endif()
     
 else()

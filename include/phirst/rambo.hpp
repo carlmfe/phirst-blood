@@ -15,7 +15,7 @@
 //   - RAMBO_BACKEND_SYCL    : SYCL (CUDA/Intel)
 //
 // Usage:
-//   #include <rambo/rambo.hpp>
+//   #include <phirst/rambo.hpp>
 //
 //   rambo::DrellYanIntegrand integrand(2.0/3.0, 1.0/137.0);
 //   rambo::RamboIntegrator<rambo::DrellYanIntegrand, 2> integrator(nEvents, integrand);

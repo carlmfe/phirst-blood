@@ -8,7 +8,7 @@
 #include <cstdint>
 #include <algorithm>
 
-#include <rambo/rambo.hpp>
+#include <phirst/rambo.hpp>
 
 // =============================================================================
 // Benchmark helper
