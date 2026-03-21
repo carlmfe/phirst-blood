@@ -128,6 +128,58 @@ PHIRST_INLINE auto fmin(double x, double y) -> double {
 #endif
 }
 
+/**
+ * Hyperbolic cosine.
+ */
+PHIRST_INLINE auto cosh(double x) -> double {
+#if defined(PHIRST_BACKEND_SYCL)
+    return sycl::cosh(x);
+#elif defined(PHIRST_BACKEND_KOKKOS)
+    return Kokkos::cosh(x);
+#else
+    return std::cosh(x);
+#endif
+}
+
+/**
+ * Hyperbolic sine.
+ */
+PHIRST_INLINE auto sinh(double x) -> double {
+#if defined(PHIRST_BACKEND_SYCL)
+    return sycl::sinh(x);
+#elif defined(PHIRST_BACKEND_KOKKOS)
+    return Kokkos::sinh(x);
+#else
+    return std::sinh(x);
+#endif
+}
+
+/**
+ * Copy sign of y to magnitude of x.
+ */
+PHIRST_INLINE auto copysign(double x, double y) -> double {
+#if defined(PHIRST_BACKEND_SYCL)
+    return sycl::copysign(x, y);
+#elif defined(PHIRST_BACKEND_KOKKOS)
+    return Kokkos::copysign(x, y);
+#else
+    return std::copysign(x, y);
+#endif
+}
+
+/**
+ * Floating-point remainder (x mod y).
+ */
+PHIRST_INLINE auto fmod(double x, double y) -> double {
+#if defined(PHIRST_BACKEND_SYCL)
+    return sycl::fmod(x, y);
+#elif defined(PHIRST_BACKEND_KOKKOS)
+    return std::fmod(x, y);
+#else
+    return std::fmod(x, y);
+#endif
+}
+
 // =============================================================================
 // Trigonometric Functions
 // =============================================================================

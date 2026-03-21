@@ -18,6 +18,7 @@
 #include "backend/random.hpp"
 #include "phase_space.hpp"
 #include "backend/parallel.hpp"
+#include "contrib/HEPUtils/Vectors.h"
 
 namespace phirst {
 
@@ -65,18 +66,31 @@ struct MCWorkFunctor {
     Integrand integrand;
     double cmEnergy;
     uint64_t baseSeed;
+    double masses[NumParticles];
     
     PHIRST_HOST_DEVICE
-    MCWorkFunctor(const Generator& gen, const Integrand& integ, double E, uint64_t seed)
-        : generator(gen), integrand(integ), cmEnergy(E), baseSeed(seed) {}
+    MCWorkFunctor(const Generator& gen, const Integrand& integ, double E, uint64_t seed,
+                  const double* m)
+        : generator(gen), integrand(integ), cmEnergy(E), baseSeed(seed) {
+        for (int i = 0; i < NumParticles; ++i) masses[i] = m[i];
+    }
     
     PHIRST_HOST_DEVICE
     void operator()(int64_t workIdx, double& acc1, double& acc2) const {
         // Compute per-event RNG seed from work index
         uint64_t rngState = seed_for_thread(baseSeed, workIdx);
         
-        double momenta[NumParticles][4];
-        double logWeight = generator(cmEnergy, rngState, momenta);
+        double rawMomenta[NumParticles][4];
+        double logWeight = generator(cmEnergy, rngState, rawMomenta);
+
+        // Use mkXYZM with the known mass to avoid sqrt(E²-p²) NaN for massless particles
+        HEPUtils::P4 momenta[NumParticles];
+        for (int i = 0; i < NumParticles; ++i) {
+            momenta[i] = HEPUtils::P4::mkXYZM(
+                rawMomenta[i][1], rawMomenta[i][2], rawMomenta[i][3], masses[i]
+            );
+        }
+
         double fx = integrand.evaluate(momenta);
         double weightedValue = fx * math::exp(logWeight);
         
@@ -126,7 +140,7 @@ public:
         Generator generator(masses);
         
         MCWorkFunctor<Generator, Integrand, NumParticles> work(
-            generator, integrand_, cmEnergy, seed);
+            generator, integrand_, cmEnergy, seed, masses);
         
         // Use the generic grid_stride_reduce primitive
         grid_stride_reduce(

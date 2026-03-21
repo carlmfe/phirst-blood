@@ -12,6 +12,9 @@
 
 #include "backend/config.hpp"
 #include "backend/math.hpp"
+#include "contrib/HEPUtils/Vectors.h"
+
+#include <iostream>
 
 namespace phirst {
 
@@ -29,19 +32,15 @@ struct EggholderIntegrand {
     PHIRST_HOST_DEVICE EggholderIntegrand(double lambda = 1000000.0) 
         : lambdaSquared(lambda) {}
     
-    PHIRST_HOST_DEVICE auto evaluate(const double momenta[][4]) const -> double {
-        double s12 = 0.0, s13 = 0.0, s23 = 0.0;
-        
-        for (int mu = 0; mu < 4; ++mu) {
-            const double d12 = momenta[0][mu] - momenta[1][mu];
-            const double d13 = momenta[0][mu] - momenta[2][mu];
-            const double d23 = momenta[1][mu] - momenta[2][mu];
-            const double sign = (mu == 0) ? 1.0 : -1.0;
-            s12 += sign * d12 * d12;
-            s13 += sign * d13 * d13;
-            s23 += sign * d23 * d23;
-        }
-        
+    PHIRST_HOST_DEVICE auto evaluate(const HEPUtils::P4 momenta[]) const -> double {
+        const HEPUtils::P4 d12 = momenta[0] - momenta[1];
+        const HEPUtils::P4 d13 = momenta[0] - momenta[2];
+        const HEPUtils::P4 d23 = momenta[1] - momenta[2];
+
+        double s12 = d12.dot(d12);
+        double s13 = d13.dot(d13);
+        double s23 = d23.dot(d23);
+
         const double arg1 = math::fabs((s12 - s23) / lambdaSquared);
         const double arg2 = math::fabs(s13 / lambdaSquared);
         return math::sin(math::sqrt(arg1)) * math::cos(math::sqrt(arg2));
@@ -61,7 +60,7 @@ struct ConstantIntegrand {
     
     PHIRST_HOST_DEVICE ConstantIntegrand(double v = 1.0) : value(v) {}
     
-    PHIRST_HOST_DEVICE auto evaluate(const double momenta[][4]) const -> double {
+    PHIRST_HOST_DEVICE auto evaluate(const HEPUtils::P4 momenta[]) const -> double {
         (void)momenta;
         return value;
     }
@@ -82,36 +81,29 @@ struct DrellYanIntegrand {
     PHIRST_HOST_DEVICE DrellYanIntegrand(double eq = 2.0/3.0, double alpha = 1.0/137.035999)
         : quarkCharge(eq), alphaEM(alpha) {}
     
-    PHIRST_HOST_DEVICE auto evaluate(const double momenta[][4]) const -> double {
-        double Ptot[4];
-        for (int mu = 0; mu < 4; ++mu) {
-            Ptot[mu] = momenta[0][mu] + momenta[1][mu];
-        }
-        
-        double s = Ptot[0]*Ptot[0] - Ptot[1]*Ptot[1] 
-                 - Ptot[2]*Ptot[2] - Ptot[3]*Ptot[3];
-        
-        if (s <= 0.0) return 0.0;
-        
-        double sqrtS = math::sqrt(s);
-        double p1[4] = {sqrtS/2.0, 0.0, 0.0, +sqrtS/2.0};
-        
-        const double* k1 = momenta[0];
-        const double* k2 = momenta[1];
-        
-        double t = -2.0 * (p1[0]*k1[0] - p1[1]*k1[1] - p1[2]*k1[2] - p1[3]*k1[3]);
-        double u = -2.0 * (p1[0]*k2[0] - p1[1]*k2[1] - p1[2]*k2[2] - p1[3]*k2[3]);
-        
+    PHIRST_HOST_DEVICE auto evaluate(const HEPUtils::P4 momenta[]) const -> double {
+        HEPUtils::P4 Ptot = momenta[0] + momenta[1];
+        double sqrtS = Ptot.m();
+        double s = sqrtS * sqrtS;
+        if (sqrtS <= 0.0) return 0.0;
+
+        HEPUtils::P4 p1 = HEPUtils::P4::mkXYZM(0.0, 0.0, +sqrtS / 2.0, 0.0);
+
+        HEPUtils::P4 k1 = momenta[0];
+        HEPUtils::P4 k2 = momenta[1];
+
+        double t = p1.m2() + k1.m2() - 2.0 * p1.dot(k1);
+        double u = p1.m2() + k2.m2() - 2.0 * p1.dot(k2);
+
         double e4 = 16.0 * math::pi * math::pi * alphaEM * alphaEM;
         double eq2 = quarkCharge * quarkCharge;
         double Msq = 2.0 * e4 * eq2 * (t*t + u*u) / (s*s);
         
         double dsigma = Msq / (2.0 * s) / (4.0 * math::pi * math::pi);
-        
+
         constexpr double hbarc2 = 0.3893793656;  // GeV^-2 to mb conversion
         return dsigma * hbarc2;
     }
-    
     /**
      * Analytic cross-section for comparison.
      * @param s Center-of-mass energy squared (GeV^2).
@@ -139,17 +131,13 @@ struct MandelstamSIntegrand {
     
     PHIRST_HOST_DEVICE MandelstamSIntegrand(double s = 1.0) : scale(s) {}
     
-    PHIRST_HOST_DEVICE auto evaluate(const double momenta[][4]) const -> double {
-        double Ptot[4] = {0.0, 0.0, 0.0, 0.0};
-        for (int i = 0; i < nParticles; ++i) {
-            for (int mu = 0; mu < 4; ++mu) {
-                Ptot[mu] += momenta[i][mu];
-            }
+    PHIRST_HOST_DEVICE auto evaluate(const HEPUtils::P4 momenta[]) const -> double {
+        HEPUtils::P4 Ptot = momenta[0];
+        for (int i = 1; i < nParticles; ++i) {
+            Ptot += momenta[i];
         }
-        
-        double s = Ptot[0]*Ptot[0] - Ptot[1]*Ptot[1] 
-                 - Ptot[2]*Ptot[2] - Ptot[3]*Ptot[3];
-        
+
+        double s = Ptot.dot(Ptot);
         return s / scale;
     }
 };
