@@ -2,14 +2,173 @@ cmake_minimum_required(VERSION 3.18)
 project("Phirst Blood" CXX)
 
 # =============================================================================
+# GPU Architecture Auto-Detection Utilities
+# =============================================================================
+
+# --- NVIDIA: query nvidia-smi for compute capabilities ---
+# Returns a semicolon-separated list of SM architectures, e.g. "80;89"
+function(detect_nvidia_architectures out_var)
+    find_program(NVIDIA_SMI nvidia-smi)
+    if(NVIDIA_SMI)
+        execute_process(
+            COMMAND ${NVIDIA_SMI} --query-gpu=compute_cap --format=csv,noheader
+            OUTPUT_VARIABLE _raw
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE _ret
+            ERROR_QUIET
+        )
+        if(_ret EQUAL 0 AND _raw)
+            # "8.9\n8.0" → strip dots → deduplicate → "89;80"
+            string(REPLACE "." "" _nodot "${_raw}")
+            string(REPLACE "\n" ";" _list "${_nodot}")
+            string(REPLACE " " "" _list "${_list}")
+            list(REMOVE_DUPLICATES _list)
+            list(REMOVE_ITEM _list "")
+            set(${out_var} "${_list}" PARENT_SCOPE)
+            message(STATUS "Detected NVIDIA SM architectures: ${_list}")
+            return()
+        endif()
+    endif()
+    message(STATUS "nvidia-smi not found or returned no GPU — defaulting to 'native'")
+    set(${out_var} "native" PARENT_SCOPE)
+endfunction()
+
+# --- AMD: query rocm_agent_enumerator (preferred) or rocminfo ---
+# Returns a semicolon-separated list of GFX targets, e.g. "gfx906;gfx90a"
+function(detect_amd_architectures out_var)
+    # Preferred: rocm_agent_enumerator (ships with ROCm, fast)
+    find_program(ROCM_AGENT_ENUM rocm_agent_enumerator
+        PATHS /opt/rocm/bin $ENV{ROCM_PATH}/bin)
+    if(ROCM_AGENT_ENUM)
+        execute_process(
+            COMMAND ${ROCM_AGENT_ENUM} -t GPU
+            OUTPUT_VARIABLE _raw
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE _ret
+            ERROR_QUIET
+        )
+        if(_ret EQUAL 0 AND _raw)
+            string(REPLACE "\n" ";" _list "${_raw}")
+            string(REPLACE " " "" _list "${_list}")
+            list(REMOVE_DUPLICATES _list)
+            list(REMOVE_ITEM _list "")
+            set(${out_var} "${_list}" PARENT_SCOPE)
+            message(STATUS "Detected AMD GFX architectures: ${_list}")
+            return()
+        endif()
+    endif()
+    # Fallback: parse rocminfo for 'gfxNNN' strings
+    find_program(ROCMINFO rocminfo
+        PATHS /opt/rocm/bin $ENV{ROCM_PATH}/bin)
+    if(ROCMINFO)
+        execute_process(
+            COMMAND ${ROCMINFO}
+            OUTPUT_VARIABLE _raw
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE _ret
+            ERROR_QUIET
+        )
+        if(_ret EQUAL 0)
+            string(REGEX MATCHALL "gfx[0-9a-fA-F]+" _list "${_raw}")
+            list(REMOVE_DUPLICATES _list)
+            list(REMOVE_ITEM _list "")
+            if(_list)
+                set(${out_var} "${_list}" PARENT_SCOPE)
+                message(STATUS "Detected AMD GFX architectures (rocminfo): ${_list}")
+                return()
+            endif()
+        endif()
+    endif()
+    message(STATUS "ROCm tools not found — no AMD architecture detected")
+    set(${out_var} "" PARENT_SCOPE)
+endfunction()
+
+# --- Intel: detect presence and capability via sycl-ls or ocloc ---
+# Sets out_var to a list of SYCL AOT targets, e.g. "spir64_gen" or specific device IDs.
+# sycl-ls is available in both oneAPI DPC++ and AdaptiveCpp.
+function(detect_intel_gpu_targets out_var)
+    find_program(SYCL_LS sycl-ls)
+    if(SYCL_LS)
+        execute_process(
+            COMMAND ${SYCL_LS}
+            OUTPUT_VARIABLE _raw
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE _ret
+            ERROR_QUIET
+        )
+        if(_ret EQUAL 0 AND _raw MATCHES "[Ii]ntel")
+            # Generic SPIR-V works on all Intel GPUs; use spir64_gen for AOT.
+            # For full JIT (portable), spir64 is the safe choice.
+            set(${out_var} "spir64_gen" PARENT_SCOPE)
+            message(STATUS "Detected Intel GPU via sycl-ls — SYCL target: spir64_gen")
+            return()
+        endif()
+    endif()
+    # Fallback: ocloc can enumerate Intel GPU device IDs for full AOT
+    find_program(OCLOC ocloc
+        PATHS /opt/intel/oneapi/compiler/latest/linux/bin $ENV{ONEAPI_ROOT}/compiler/latest/linux/bin)
+    if(OCLOC)
+        message(STATUS "Detected Intel ocloc — SYCL target: spir64_gen")
+        set(${out_var} "spir64_gen" PARENT_SCOPE)
+        return()
+    endif()
+    message(STATUS "No Intel GPU tools found")
+    set(${out_var} "" PARENT_SCOPE)
+endfunction()
+
+# =============================================================================
 # Backend Selection
 # =============================================================================
 # Usage: cmake -DPHIRST_BACKEND=CUDA ..
-# Valid backends: SERIAL, CUDA, KOKKOS, ALPAKA, SYCL
-# Default: SERIAL
+# Valid backends: AUTO, SERIAL, CUDA, KOKKOS, ALPAKA, SYCL
+# Default: AUTO (probes for GPU toolchains in order: CUDA > HIP > SYCL > SERIAL)
 
-set(PHIRST_BACKEND "SERIAL" CACHE STRING "Backend: SERIAL, CUDA, KOKKOS, ALPAKA, SYCL")
-set_property(CACHE PHIRST_BACKEND PROPERTY STRINGS SERIAL CUDA KOKKOS ALPAKA SYCL)
+set(PHIRST_BACKEND "AUTO" CACHE STRING "Backend: AUTO, SERIAL, CUDA, KOKKOS, ALPAKA, SYCL")
+set_property(CACHE PHIRST_BACKEND PROPERTY STRINGS AUTO SERIAL CUDA KOKKOS ALPAKA SYCL)
+
+# --- AUTO detection ---
+if(PHIRST_BACKEND STREQUAL "AUTO")
+    include(CheckLanguage)
+    check_language(CUDA)
+    if(CMAKE_CUDA_COMPILER)
+        set(PHIRST_BACKEND "CUDA")
+        message(STATUS "AUTO: CUDA compiler found → selecting CUDA backend")
+    else()
+        find_program(_ROCM_AGENT rocm_agent_enumerator
+            PATHS /opt/rocm/bin $ENV{ROCM_PATH}/bin)
+        find_program(_ROCMINFO rocminfo
+            PATHS /opt/rocm/bin $ENV{ROCM_PATH}/bin)
+        if(_ROCM_AGENT OR _ROCMINFO)
+            # ROCm present — prefer Kokkos if installed, else SYCL, else warn
+            find_package(Kokkos QUIET)
+            if(Kokkos_FOUND)
+                set(PHIRST_BACKEND "KOKKOS")
+                message(STATUS "AUTO: ROCm + Kokkos found → selecting KOKKOS backend")
+            else()
+                set(PHIRST_BACKEND "SYCL")
+                set(SYCL_BACKEND "AMD" CACHE STRING "SYCL device backend (auto-set)" FORCE)
+                message(STATUS "AUTO: ROCm found (no Kokkos) → selecting SYCL/AMD backend")
+            endif()
+        else()
+            find_program(_SYCL_LS sycl-ls)
+            if(_SYCL_LS)
+                execute_process(COMMAND ${_SYCL_LS}
+                    OUTPUT_VARIABLE _sycl_out OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+                if(_sycl_out MATCHES "[Ii]ntel")
+                    set(PHIRST_BACKEND "SYCL")
+                    set(SYCL_BACKEND "INTEL" CACHE STRING "SYCL device backend (auto-set)" FORCE)
+                    message(STATUS "AUTO: Intel GPU found via sycl-ls → selecting SYCL/Intel backend")
+                else()
+                    set(PHIRST_BACKEND "SERIAL")
+                    message(STATUS "AUTO: sycl-ls found but no Intel GPU — falling back to SERIAL")
+                endif()
+            else()
+                set(PHIRST_BACKEND "SERIAL")
+                message(STATUS "AUTO: No GPU toolchain found → selecting SERIAL backend")
+            endif()
+        endif()
+    endif()
+endif()
 
 message(STATUS "PHIRST Backend: ${PHIRST_BACKEND}")
 
@@ -61,7 +220,13 @@ elseif(PHIRST_BACKEND STREQUAL "CUDA")
     
     set(CMAKE_CUDA_STANDARD 20)
     set(CMAKE_CUDA_STANDARD_REQUIRED ON)
-    set(CMAKE_CUDA_ARCHITECTURES "native" CACHE STRING "CUDA architectures")
+
+    # Auto-detect SM architectures unless explicitly set by the user
+    if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES OR CMAKE_CUDA_ARCHITECTURES STREQUAL "")
+        detect_nvidia_architectures(_detected_cuda_archs)
+        set(CMAKE_CUDA_ARCHITECTURES "${_detected_cuda_archs}" CACHE STRING "CUDA architectures" FORCE)
+    endif()
+    message(STATUS "CUDA architectures: ${CMAKE_CUDA_ARCHITECTURES}")
     
     # For CUDA, rename drell_yan.cpp to drell_yan.cu
     set_source_files_properties(examples/drell_yan.cpp PROPERTIES LANGUAGE CUDA)
