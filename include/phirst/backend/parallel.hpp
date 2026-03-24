@@ -398,9 +398,29 @@ inline void atomic_add(T* ptr, T val) { *ptr += val; }
 template <typename T>
 KOKKOS_INLINE_FUNCTION void atomic_add(T* ptr, T val) { Kokkos::atomic_add(ptr, val); }
 
+
 #elif defined(PHIRST_BACKEND_CUDA)
+// Generic atomic_add for types with native atomicAdd support (int, unsigned int, float, etc.)
 template <typename T>
 __device__ void atomic_add(T* ptr, T val) { atomicAdd(ptr, val); }
+
+// Specialization for double: CUDA 12 does not always provide atomicAdd(double*, double) on device.
+template <>
+__device__ inline void atomic_add<double>(double* ptr, double val) {
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 600)
+    atomicAdd(ptr, val);
+#else
+    // Fallback: CAS-based atomic add for double
+    unsigned long long int* address_as_ull = reinterpret_cast<unsigned long long int*>(ptr);
+    unsigned long long int old = *address_as_ull;
+    unsigned long long int assumed;
+    do {
+        assumed = old;
+        old = atomicCAS(address_as_ull, assumed,
+                        __double_as_longlong(val + __longlong_as_double(assumed)));
+    } while (assumed != old);
+#endif
+}
 
 #elif defined(PHIRST_BACKEND_SYCL)
 // SYCL atomic_ref is verbose; provide macro for use in device code
