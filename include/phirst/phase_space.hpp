@@ -58,7 +58,8 @@ struct RamboAlgorithm {
      * Constructor with masses for pre-computation.
      * @param masses Pointer to array of particle masses (length nParticles).
      */
-    PHIRST_HOST_DEVICE explicit RamboAlgorithm(const double* masses) {
+    PHIRST_HOST_DEVICE
+    explicit RamboAlgorithm(const double* masses) {
         initializeMasses(masses);
     }
 
@@ -66,7 +67,8 @@ struct RamboAlgorithm {
      * Initialize mass-dependent quantities. Can be called to update masses.
      * @param masses Pointer to array of particle masses (length nParticles).
      */
-    PHIRST_HOST_DEVICE void initializeMasses(const double* masses) {
+    PHIRST_HOST_DEVICE
+    void initializeMasses(const double* masses) {
         totalMass = 0.0;
         nMassive = 0;
         for (int i = 0; i < nParticles; ++i) {
@@ -91,7 +93,8 @@ struct RamboAlgorithm {
      * @return Number of iterations used.
      */
     template <typename FuncType, typename DerivType, typename ClampType>
-    PHIRST_HOST_DEVICE static auto newtonSolve(double& x, FuncType f, DerivType df,
+    PHIRST_HOST_DEVICE
+    static auto newtonSolve(double& x, FuncType f, DerivType df,
                                               double tol, int maxIter, ClampType clamp) -> int {
         for (int iter = 0; iter <= maxIter; ++iter) {
             double fVal = f(x);
@@ -106,7 +109,8 @@ struct RamboAlgorithm {
 
     /// Newton solver without clamping.
     template <typename FuncType, typename DerivType>
-    PHIRST_HOST_DEVICE static auto newtonSolve(double& x, FuncType f, DerivType df,
+    PHIRST_HOST_DEVICE
+    static auto newtonSolve(double& x, FuncType f, DerivType df,
                                               double tol, int maxIter) -> int {
         return newtonSolve(x, f, df, tol, maxIter, [](double&) {});
     }
@@ -122,7 +126,8 @@ public:
      * 
      * Note: Uses pre-computed mass quantities. Call initializeMasses() first if masses changed.
      */
-    PHIRST_HOST_DEVICE auto generate(double cmEnergy, const double r[4 * nParticles], 
+    PHIRST_HOST_DEVICE
+    auto generate(double cmEnergy, const double r[4 * nParticles], 
                                     double momenta[][4]) const -> double {
         double q[nParticles][4];
         double p[nParticles][4];
@@ -135,7 +140,7 @@ public:
             double cosTheta = 2.0 * r[4 * i] - 1.0;
             double sinTheta = math::sqrt(1.0 - cosTheta * cosTheta);
             double phi = math::twoPi * r[4 * i + 1];
-            
+    
             q[i][0] = -math::log(r[4 * i + 2] * r[4 * i + 3]);
             q[i][3] = q[i][0] * cosTheta;
             q[i][2] = q[i][0] * sinTheta * math::cos(phi);
@@ -253,7 +258,8 @@ public:
      * @param momenta Output array `[nParticles][4]` for generated 4-momenta.
      * @return Natural logarithm of the phase-space weight.
      */
-    PHIRST_HOST_DEVICE auto generate(double cmEnergy, uint64_t& rngState, 
+    PHIRST_HOST_DEVICE
+    auto generate(double cmEnergy, uint64_t& rngState, 
                                     double momenta[][4]) const -> double {
         double r[4 * nParticles];
         for (int i = 0; i < 4 * nParticles; ++i) {
@@ -304,7 +310,8 @@ struct RamboDietAlgorithm {
      * Constructor with masses for pre-computation.
      * @param masses Pointer to array of particle masses (length nParticles).
      */
-    PHIRST_HOST_DEVICE explicit RamboDietAlgorithm(const double* masses) {
+    PHIRST_HOST_DEVICE
+    explicit RamboDietAlgorithm(const double* masses) {
         initializeMasses(masses);
     }
 
@@ -312,7 +319,8 @@ struct RamboDietAlgorithm {
      * Initialize mass-dependent quantities. Can be called to update masses.
      * @param masses Pointer to array of particle masses (length nParticles).
      */
-    PHIRST_HOST_DEVICE void initializeMasses(const double* masses) {
+    PHIRST_HOST_DEVICE
+    void initializeMasses(const double* masses) {
         totalMass = 0.0;
         nMassive = 0;
         for (int i = 0; i < nParticles; ++i) {
@@ -327,7 +335,8 @@ struct RamboDietAlgorithm {
      * Generic Newton-Raphson solver for finding roots of f(x) = 0.
      */
     template <typename FuncType, typename DerivType, typename ClampType>
-    PHIRST_HOST_DEVICE static auto newtonSolve(double& x, FuncType f, DerivType df,
+    PHIRST_HOST_DEVICE
+    static auto newtonSolve(double& x, FuncType f, DerivType df,
                                               double tol, int maxIter, ClampType clamp) -> int {
         for (int iter = 0; iter <= maxIter; ++iter) {
             double fVal = f(x);
@@ -342,7 +351,8 @@ struct RamboDietAlgorithm {
 
     /// Newton solver without clamping.
     template <typename FuncType, typename DerivType>
-    PHIRST_HOST_DEVICE static auto newtonSolve(double& x, FuncType f, DerivType df,
+    PHIRST_HOST_DEVICE
+    static auto newtonSolve(double& x, FuncType f, DerivType df,
                                               double tol, int maxIter) -> int {
         return newtonSolve(x, f, df, tol, maxIter, [](double&) {});
     }
@@ -353,13 +363,14 @@ public:
      * @param p Array `[E, px, py, pz]` (modified in-place).
      * @param boostVec 3-component velocity vector `(beta_x, beta_y, beta_z)`.
      */
-    PHIRST_HOST_DEVICE auto boost(double p[4], const double* boostVec) const -> void {
+    PHIRST_HOST_DEVICE
+    auto boost(double p[4], const double* boostVec) const -> void {
         double b2 = boostVec[0]*boostVec[0] + boostVec[1]*boostVec[1] + boostVec[2]*boostVec[2];
         if (b2 >= 1.0 || b2 <= 0.0) return; // Invalid boost; leave 'p' unchanged.
         double gamma = 1.0 / math::sqrt(1.0 - b2);
         double bDotP = boostVec[0]*p[1] + boostVec[1]*p[2] + boostVec[2]*p[3];
         double factor = (gamma - 1.0) * bDotP / b2 - gamma * p[0];
-        
+
         p[0] = gamma * (p[0] - bDotP);
         for (int k = 1; k < 4; ++k) {
             p[k] += boostVec[k-1] * factor;
@@ -370,32 +381,35 @@ public:
      * Evaluate the equation whose root is `u` (used by Newton iterations).
      * f(u) = r - m*u^(m-1) + (m-1)*u^m = 0
      */
-    PHIRST_HOST_DEVICE static auto uEquation(double u, double r, int m) -> double {
+    PHIRST_HOST_DEVICE
+    static auto uEquation(double u, double r, int m) -> double {
         return r - m * math::pow(u, m - 1) + (m - 1) * math::pow(u, m);
     }
 
     /**
      * Derivative of `uEquation` with respect to `u`.
      */
-    PHIRST_HOST_DEVICE static auto dUEquation(double u, int m) -> double {
+    PHIRST_HOST_DEVICE
+    static auto dUEquation(double u, int m) -> double {
         return m * (m - 1) * (-math::pow(u, m - 2) + math::pow(u, m - 1));
     }
 
     /**
      * Newton solve for the intermediate variable `u` used in the Diet variant.
      */
-    PHIRST_HOST_DEVICE auto solveForU(double& u, double r, int index) const -> void {
+    PHIRST_HOST_DEVICE
+    auto solveForU(double& u, double r, int index) const -> void {
         const int m = nParticles - index;
         // Initial guess: u ~ r^(1/(m-1))
         u = math::pow(r, 1.0 / static_cast<double>(m - 1));
-        
+
         // Clamp to valid range (0, 1)
         auto clampU = [](double& u) {
             if (u <= 0.0) u = 1e-12;
             if (u >= 1.0) u = 1.0 - 1e-12;
         };
         clampU(u);
-        
+
         newtonSolve(u,
             [r, m](double u) { return uEquation(u, r, m); },
             [m](double u) { return dUEquation(u, m); },
@@ -410,10 +424,11 @@ public:
      * @param momenta Output array `[nParticles][4]` for generated 4-momenta.
      * @return Natural logarithm of the phase-space weight.
      */
-    PHIRST_HOST_DEVICE auto generate(double cmEnergy, const double r[3 * nParticles - 4], 
+    PHIRST_HOST_DEVICE
+    auto generate(double cmEnergy, const double r[3 * nParticles - 4], 
                                     double momenta[nParticles][4]) const -> double {
         if (totalMass > cmEnergy) return -std::numeric_limits<double>::infinity();
-        
+
         double p[nParticles][4];
 
         // === Generate phase space for massless particles first ===
@@ -444,7 +459,7 @@ public:
 
             // u determines intermediate mass ratios – only needed for N > 3
             [[maybe_unused]] double u[nParticles > 3 ? nParticles - 2 : 1];
-    
+
             for (int i = 1; i < nParticles; ++i) {
                 if constexpr (nParticles == 3) {
                     MCurr = (i == 1) ? (1.0 - math::sqrt(1.0 - r[0])) * MPrev : 0.0;
@@ -472,7 +487,7 @@ public:
                 QCurr[1] = -p[i - 1][1];
                 QCurr[2] = -p[i - 1][2];
                 QCurr[3] = -p[i - 1][3];
-    
+
                 if constexpr (nParticles > 2) {
                     if (i > 1) {
                         boostVec[0] = QPrev[1] / QPrev[0];
@@ -481,14 +496,14 @@ public:
                         boost(p[i - 1], boostVec);
                         boost(QCurr, boostVec);
                     }
-    
+
                     MPrev = MCurr;
                     for (int k = 0; k < 4; ++k) {
                         QPrev[k] = QCurr[k];
                     }
                 }
             }
-    
+
             // Last particle
             for (int k = 0; k < 4; ++k) {
                 p[nParticles - 1][k] = QCurr[k];
@@ -579,7 +594,8 @@ public:
     /**
      * RNG-based overload.
      */
-    PHIRST_HOST_DEVICE auto generate(double cmEnergy, uint64_t& rngState, 
+    PHIRST_HOST_DEVICE
+    auto generate(double cmEnergy, uint64_t& rngState, 
                                     double momenta[nParticles][4]) const -> double {
         double r[3 * nParticles - 4];
         for (int i = 0; i < 3 * nParticles - 4; ++i) {
@@ -604,7 +620,8 @@ struct PhaseSpaceGenerator {
      * Constructor that pre-computes mass-dependent quantities in the algorithm.
      * @param masses Pointer to an array of length `nParticles` with particle masses.
      */
-    PHIRST_HOST_DEVICE PhaseSpaceGenerator(const double* masses) 
+    PHIRST_HOST_DEVICE
+    PhaseSpaceGenerator(const double* masses) 
         : algorithm(masses) {}
 
     /**
@@ -614,7 +631,8 @@ struct PhaseSpaceGenerator {
      * @param momenta Output array `[nParticles][4]` (E, px, py, pz).
      * @return Natural logarithm of the phase-space weight.
      */
-    PHIRST_HOST_DEVICE auto operator()(double cmEnergy, uint64_t& rngState, 
+    PHIRST_HOST_DEVICE
+    auto operator()(double cmEnergy, uint64_t& rngState, 
                                       double momenta[][4]) const -> double {
         return algorithm.generate(cmEnergy, rngState, momenta);
     }
@@ -626,7 +644,8 @@ struct PhaseSpaceGenerator {
      * @param momenta Output array `[nParticles][4]` (E, px, py, pz).
      * @return Natural logarithm of the phase-space weight.
      */
-    PHIRST_HOST_DEVICE auto operator()(double cmEnergy, const double* r, 
+    PHIRST_HOST_DEVICE
+    auto operator()(double cmEnergy, const double* r, 
                                       double momenta[][4]) const -> double {
         return algorithm.generate(cmEnergy, r, momenta);
     }

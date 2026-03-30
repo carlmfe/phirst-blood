@@ -28,11 +28,13 @@ namespace phirst {
  */
 struct EggholderIntegrand {
     double lambdaSquared;
-    
-    PHIRST_HOST_DEVICE EggholderIntegrand(double lambda = 1000000.0) 
+
+    PHIRST_HOST_DEVICE
+    EggholderIntegrand(double lambda = 1000000.0) 
         : lambdaSquared(lambda) {}
-    
-    PHIRST_HOST_DEVICE auto evaluate(const HEPUtils::P4 momenta[]) const -> double {
+
+    PHIRST_HOST_DEVICE
+    auto evaluate(const HEPUtils::P4 momenta[]) const -> double {
         const HEPUtils::P4 d12 = momenta[0] - momenta[1];
         const HEPUtils::P4 d13 = momenta[0] - momenta[2];
         const HEPUtils::P4 d23 = momenta[1] - momenta[2];
@@ -57,10 +59,12 @@ struct EggholderIntegrand {
  */
 struct ConstantIntegrand {
     double value;
-    
-    PHIRST_HOST_DEVICE ConstantIntegrand(double v = 1.0) : value(v) {}
-    
-    PHIRST_HOST_DEVICE auto evaluate(const HEPUtils::P4 momenta[]) const -> double {
+
+    PHIRST_HOST_DEVICE
+    ConstantIntegrand(double v = 1.0) : value(v) {}
+
+    PHIRST_HOST_DEVICE
+    auto evaluate(const HEPUtils::P4 momenta[]) const -> double {
         (void)momenta;
         return value;
     }
@@ -77,11 +81,13 @@ struct ConstantIntegrand {
 struct DrellYanIntegrand {
     double quarkCharge;
     double alphaEM;
-    
-    PHIRST_HOST_DEVICE DrellYanIntegrand(double eq = 2.0/3.0, double alpha = 1.0/137.035999)
+
+    PHIRST_HOST_DEVICE
+    DrellYanIntegrand(double eq = 2.0/3.0, double alpha = 1.0/137.035999)
         : quarkCharge(eq), alphaEM(alpha) {}
-    
-    PHIRST_HOST_DEVICE auto evaluate(const HEPUtils::P4 momenta[]) const -> double {
+
+    PHIRST_HOST_DEVICE
+    auto evaluate(const HEPUtils::P4 momenta[]) const -> double {
         HEPUtils::P4 Ptot = momenta[0] + momenta[1];
         double sqrtS = Ptot.m();
         double s = sqrtS * sqrtS;
@@ -98,7 +104,7 @@ struct DrellYanIntegrand {
         double e4 = 16.0 * math::pi * math::pi * alphaEM * alphaEM;
         double eq2 = quarkCharge * quarkCharge;
         double Msq = 2.0 * e4 * eq2 * (t*t + u*u) / (s*s);
-        
+
         double dsigma = Msq / (2.0 * s) / (4.0 * math::pi * math::pi);
 
         constexpr double hbarc2 = 0.3893793656;  // GeV^-2 to mb conversion
@@ -111,7 +117,8 @@ struct DrellYanIntegrand {
      * @param alpha Fine structure constant.
      * @return Cross-section in millibarns.
      */
-    PHIRST_HOST_DEVICE static auto analyticCrossSection(double s, double eq, double alpha) -> double {
+    PHIRST_HOST_DEVICE
+    static auto analyticCrossSection(double s, double eq, double alpha) -> double {
         constexpr double hbarc2 = 0.3893793656;
         return 4.0 * math::pi * alpha * alpha * eq * eq / (3.0 * s) * hbarc2;
     }
@@ -128,10 +135,12 @@ struct DrellYanIntegrand {
 template <int nParticles>
 struct MandelstamSIntegrand {
     double scale;
-    
-    PHIRST_HOST_DEVICE MandelstamSIntegrand(double s = 1.0) : scale(s) {}
-    
-    PHIRST_HOST_DEVICE auto evaluate(const HEPUtils::P4 momenta[]) const -> double {
+
+    PHIRST_HOST_DEVICE
+    MandelstamSIntegrand(double s = 1.0) : scale(s) {}
+
+    PHIRST_HOST_DEVICE
+    auto evaluate(const HEPUtils::P4 momenta[]) const -> double {
         HEPUtils::P4 Ptot = momenta[0];
         for (int i = 1; i < nParticles; ++i) {
             Ptot += momenta[i];

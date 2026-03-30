@@ -20,8 +20,6 @@
  */
 
 #include "config.hpp"
-#include "math.hpp"
-#include <cstdint>
 #include <vector>
 
 // Backend-specific includes
@@ -44,6 +42,10 @@ namespace phirst {
 
 struct HostSpace {};
 struct DeviceSpace {};
+
+#if !defined(PHIRST_BACKEND_ALPAKA)
+    struct KernelAcc {}; // Dummy accelerator for unified atomic signatures
+#endif
 
 #if defined(PHIRST_BACKEND_SERIAL)
     using DefaultSpace = HostSpace;
@@ -68,7 +70,7 @@ struct DeviceSpace {};
     #else
         using AlpakaTag = alpaka::TagCpuSerial;
     #endif
-    
+
     using AlpakaDim = alpaka::DimInt<1>;
     using AlpakaIdx = std::size_t;
     using AlpakaAcc = alpaka::TagToAcc<AlpakaTag, AlpakaDim, AlpakaIdx>;
@@ -85,7 +87,7 @@ struct GridConfig {
     int64_t totalThreads;
     int64_t blockSize;
     int64_t numBlocks;
-    
+
     static GridConfig compute(int64_t nWork, int64_t blockSz = 256, int64_t maxBlks = 1024) {
         GridConfig cfg;
         cfg.blockSize = blockSz;
@@ -120,7 +122,7 @@ public:
     DeviceBuffer() : data_(nullptr), size_(0) {}
     explicit DeviceBuffer(int64_t n) : size_(n) { data_ = new T[n](); }
     ~DeviceBuffer() { delete[] data_; }
-    
+
     DeviceBuffer(DeviceBuffer&& o) noexcept : data_(o.data_), size_(o.size_) { o.data_ = nullptr; o.size_ = 0; }
     DeviceBuffer& operator=(DeviceBuffer&& o) noexcept {
         if (this != &o) { delete[] data_; data_ = o.data_; size_ = o.size_; o.data_ = nullptr; o.size_ = 0; }
@@ -128,7 +130,7 @@ public:
     }
     DeviceBuffer(const DeviceBuffer&) = delete;
     DeviceBuffer& operator=(const DeviceBuffer&) = delete;
-    
+
     T* data() { return data_; }
     const T* data() const { return data_; }
     int64_t size() const { return size_; }
@@ -146,7 +148,7 @@ class DeviceBuffer {
 public:
     DeviceBuffer() : size_(0) {}
     explicit DeviceBuffer(int64_t n) : view_("buffer", n), size_(n) {}
-    
+
     T* data() { return view_.data(); }
     const T* data() const { return view_.data(); }
     int64_t size() const { return size_; }
@@ -168,7 +170,7 @@ public:
         data_ = sycl::malloc_device<T>(n, *queue_);
     }
     ~DeviceBuffer() { if (data_ && queue_) { sycl::free(data_, *queue_); delete queue_; } }
-    
+
     DeviceBuffer(DeviceBuffer&& o) noexcept : data_(o.data_), size_(o.size_), queue_(o.queue_) {
         o.data_ = nullptr; o.size_ = 0; o.queue_ = nullptr;
     }
@@ -182,7 +184,7 @@ public:
     }
     DeviceBuffer(const DeviceBuffer&) = delete;
     DeviceBuffer& operator=(const DeviceBuffer&) = delete;
-    
+
     T* data() { return data_; }
     const T* data() const { return data_; }
     int64_t size() const { return size_; }
@@ -199,13 +201,13 @@ template <typename T>
 class DeviceBuffer {
 public:
     using BufType = alpaka::Buf<AlpakaAcc, T, AlpakaDim, AlpakaIdx>;
-    
+
     DeviceBuffer() : size_(0) {}
     explicit DeviceBuffer(int64_t n) : size_(n) {
         auto devAcc = alpaka::getDevByIdx(alpaka::Platform<AlpakaAcc>{}, 0);
         buf_.emplace(alpaka::allocBuf<T, AlpakaIdx>(devAcc, static_cast<AlpakaIdx>(n)));
     }
-    
+
     T* data() { return buf_ ? alpaka::getPtrNative(*buf_) : nullptr; }
     const T* data() const { return buf_ ? alpaka::getPtrNative(*buf_) : nullptr; }
     int64_t size() const { return size_; }
@@ -227,7 +229,7 @@ public:
         cudaMemset(data_, 0, n * sizeof(T));
     }
     ~DeviceBuffer() { if (data_) cudaFree(data_); }
-    
+
     DeviceBuffer(DeviceBuffer&& o) noexcept : data_(o.data_), size_(o.size_) { o.data_ = nullptr; o.size_ = 0; }
     DeviceBuffer& operator=(DeviceBuffer&& o) noexcept {
         if (this != &o) { if (data_) cudaFree(data_); data_ = o.data_; size_ = o.size_; o.data_ = nullptr; o.size_ = 0; }
@@ -235,7 +237,7 @@ public:
     }
     DeviceBuffer(const DeviceBuffer&) = delete;
     DeviceBuffer& operator=(const DeviceBuffer&) = delete;
-    
+
     T* data() { return data_; }
     const T* data() const { return data_; }
     int64_t size() const { return size_; }
@@ -254,16 +256,16 @@ template <typename T>
 void deep_copy(DeviceBuffer<T>& dest, const T* hostSrc, int64_t n) {
 #if defined(PHIRST_BACKEND_SERIAL)
     for (int64_t i = 0; i < n; ++i) dest[i] = hostSrc[i];
-    
+
 #elif defined(PHIRST_BACKEND_KOKKOS)
     auto hostView = Kokkos::View<const T*, Kokkos::HostSpace, 
                                   Kokkos::MemoryTraits<Kokkos::Unmanaged>>(hostSrc, n);
     auto destSubview = Kokkos::subview(dest.view(), std::make_pair(int64_t(0), n));
     Kokkos::deep_copy(destSubview, hostView);
-    
+
 #elif defined(PHIRST_BACKEND_SYCL)
     dest.queue().memcpy(dest.data(), hostSrc, n * sizeof(T)).wait();
-    
+
 #elif defined(PHIRST_BACKEND_ALPAKA)
     auto devHost = alpaka::getDevByIdx(alpaka::PlatformCpu{}, 0);
     auto devAcc = alpaka::getDevByIdx(alpaka::Platform<AlpakaAcc>{}, 0);
@@ -273,7 +275,7 @@ void deep_copy(DeviceBuffer<T>& dest, const T* hostSrc, int64_t n) {
     for (int64_t i = 0; i < n; ++i) hostBuf[i] = hostSrc[i];
     alpaka::memcpy(queue, dest.buffer(), hostBuf, extent);
     alpaka::wait(queue);
-    
+
 #elif defined(PHIRST_BACKEND_CUDA)
     cudaMemcpy(dest.data(), hostSrc, n * sizeof(T), cudaMemcpyHostToDevice);
 #endif
@@ -283,17 +285,17 @@ template <typename T>
 void deep_copy(T* hostDest, const DeviceBuffer<T>& src, int64_t n) {
 #if defined(PHIRST_BACKEND_SERIAL)
     for (int64_t i = 0; i < n; ++i) hostDest[i] = src[i];
-    
+
 #elif defined(PHIRST_BACKEND_KOKKOS)
     auto hostView = Kokkos::View<T*, Kokkos::HostSpace,
                                   Kokkos::MemoryTraits<Kokkos::Unmanaged>>(hostDest, n);
     auto srcSubview = Kokkos::subview(src.view(), std::make_pair(int64_t(0), n));
     Kokkos::deep_copy(hostView, srcSubview);
-    
+
 #elif defined(PHIRST_BACKEND_SYCL)
     auto& queue = const_cast<DeviceBuffer<T>&>(src).queue();
     queue.memcpy(hostDest, src.data(), n * sizeof(T)).wait();
-    
+
 #elif defined(PHIRST_BACKEND_ALPAKA)
     auto devHost = alpaka::getDevByIdx(alpaka::PlatformCpu{}, 0);
     auto devAcc = alpaka::getDevByIdx(alpaka::Platform<AlpakaAcc>{}, 0);
@@ -303,7 +305,7 @@ void deep_copy(T* hostDest, const DeviceBuffer<T>& src, int64_t n) {
     alpaka::memcpy(queue, hostBuf, const_cast<DeviceBuffer<T>&>(src).buffer(), extent);
     alpaka::wait(queue);
     for (int64_t i = 0; i < n; ++i) hostDest[i] = hostBuf[i];
-    
+
 #elif defined(PHIRST_BACKEND_CUDA)
     cudaMemcpy(hostDest, src.data(), n * sizeof(T), cudaMemcpyDeviceToHost);
 #endif
@@ -317,10 +319,10 @@ template <typename T>
 void fill_buffer(DeviceBuffer<T>& buf, T value) {
 #if defined(PHIRST_BACKEND_SERIAL)
     for (int64_t i = 0; i < buf.size(); ++i) buf[i] = value;
-    
+
 #elif defined(PHIRST_BACKEND_KOKKOS)
     Kokkos::deep_copy(buf.view(), value);
-    
+
 #elif defined(PHIRST_BACKEND_SYCL)
     if (value == T{}) {
         buf.queue().memset(buf.data(), 0, buf.size() * sizeof(T)).wait();
@@ -329,7 +331,7 @@ void fill_buffer(DeviceBuffer<T>& buf, T value) {
             ptr[i] = value;
         }).wait();
     }
-    
+
 #elif defined(PHIRST_BACKEND_ALPAKA)
     auto devAcc = alpaka::getDevByIdx(alpaka::Platform<AlpakaAcc>{}, 0);
     AlpakaQueue queue(devAcc);
@@ -343,7 +345,7 @@ void fill_buffer(DeviceBuffer<T>& buf, T value) {
         alpaka::memcpy(queue, buf.buffer(), hostBuf, extent);
     }
     alpaka::wait(queue);
-    
+
 #elif defined(PHIRST_BACKEND_CUDA)
     if (value == T{}) {
         cudaMemset(buf.data(), 0, buf.size() * sizeof(T));
@@ -386,27 +388,21 @@ T host_reduce(const T* data, int64_t n) {
 // =============================================================================
 // atomic_add - Portable Atomic Addition
 // =============================================================================
-// Device-callable atomic add wrapper. 
-// Note: Alpaka requires the accelerator object, so uses alpaka::atomicAdd directly.
-// Note: SYCL requires atomic_ref, which is verbose - use PHIRST_SYCL_ATOMIC_ADD macro.
 
 #if defined(PHIRST_BACKEND_SERIAL)
-template <typename T>
-inline void atomic_add(T* ptr, T val) { *ptr += val; }
+template <typename Acc, typename T>
+inline void atomic_add(const Acc&, T* ptr, T val) { *ptr += val; }
 
 #elif defined(PHIRST_BACKEND_KOKKOS)
-template <typename T>
-KOKKOS_INLINE_FUNCTION void atomic_add(T* ptr, T val) { Kokkos::atomic_add(ptr, val); }
-
+template <typename Acc, typename T>
+KOKKOS_INLINE_FUNCTION void atomic_add(const Acc&, T* ptr, T val) { Kokkos::atomic_add(ptr, val); }
 
 #elif defined(PHIRST_BACKEND_CUDA)
-// Generic atomic_add for types with native atomicAdd support (int, unsigned int, float, etc.)
-template <typename T>
-__device__ void atomic_add(T* ptr, T val) { atomicAdd(ptr, val); }
+template <typename Acc, typename T>
+__device__ void atomic_add(const Acc&, T* ptr, T val) { atomicAdd(ptr, val); }
 
-// Specialization for double: CUDA 12 does not always provide atomicAdd(double*, double) on device.
-template <>
-__device__ inline void atomic_add<double>(double* ptr, double val) {
+template <typename Acc>
+__device__ inline void atomic_add(const Acc&, double* ptr, double val) {
 #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 600)
     atomicAdd(ptr, val);
 #else
@@ -423,16 +419,117 @@ __device__ inline void atomic_add<double>(double* ptr, double val) {
 }
 
 #elif defined(PHIRST_BACKEND_SYCL)
-// SYCL atomic_ref is verbose; provide macro for use in device code
-#define PHIRST_SYCL_ATOMIC_ADD(ptr, val) do { \
-    sycl::atomic_ref<decltype(val), sycl::memory_order::relaxed, \
-        sycl::memory_scope::device, \
-        sycl::access::address_space::global_space> ref(*(ptr)); \
-    ref.fetch_add(val); \
-} while(0)
+template <typename Acc, typename T>
+inline void atomic_add(const Acc&, T* ptr, T val) {
+    sycl::atomic_ref<T, sycl::memory_order::relaxed,
+                     sycl::memory_scope::device,
+                     sycl::access::address_space::global_space> ref(*(ptr));
+    ref.fetch_add(val);
+}
 
 #elif defined(PHIRST_BACKEND_ALPAKA)
-// Alpaka needs acc object; use alpaka::atomicAdd(acc, ptr, val, hierarchy::Grids{}) directly
+template <typename TAcc, typename T>
+ALPAKA_FN_ACC void atomic_add(TAcc const& acc, T* ptr, T val) {
+    alpaka::atomicAdd(acc, ptr, val, alpaka::hierarchy::Grids{});
+}
+#endif
+
+// =============================================================================
+// SYCL Queue Helper
+// =============================================================================
+#if defined(PHIRST_BACKEND_SYCL)
+// This is a lightweight object that will own a default queue.
+// It's useful for getting a queue without needing a DeviceBuffer.
+inline sycl::queue& get_default_queue() {
+    static sycl::queue q{sycl::default_selector_v};
+    return q;
+}
+#endif
+
+// =============================================================================
+// run_single_thread - Execute a functor with a single thread on the device
+// =============================================================================
+//
+// WorkFunctor signature: void operator()(const Acc& acc) const
+// =============================================================================
+
+#if defined(PHIRST_BACKEND_SERIAL)
+template <typename WorkFunctor>
+void run_single_thread(const WorkFunctor& work) {
+    work(KernelAcc{});
+}
+
+#elif defined(PHIRST_BACKEND_KOKKOS)
+template <typename WorkFunctor>
+void run_single_thread(const WorkFunctor& work) {
+    Kokkos::parallel_for("single_thread_exec", 1,
+        KOKKOS_LAMBDA(const int) {
+            work(KernelAcc{});
+        }
+    );
+    Kokkos::fence();
+}
+
+#elif defined(PHIRST_BACKEND_SYCL)
+template <typename WorkFunctor>
+void run_single_thread(const WorkFunctor& work) {
+    get_default_queue().submit([&](sycl::handler& h) {
+        h.single_task([=]() {
+            work(KernelAcc{});
+        });
+    }).wait();
+}
+
+#elif defined(PHIRST_BACKEND_CUDA)
+
+template <typename WorkFunctor>
+__global__ void cuda_single_thread_kernel(WorkFunctor work) {
+    if (threadIdx.x == 0 && blockIdx.x == 0) {
+        work(KernelAcc{});
+    }
+}
+
+template <typename WorkFunctor>
+void run_single_thread(const WorkFunctor& work) {
+    cuda_single_thread_kernel<<<1, 1>>>(work);
+    cudaDeviceSynchronize();
+}
+
+#elif defined(PHIRST_BACKEND_ALPAKA)
+
+template <typename WorkFunctor>
+struct AlpakaSingleThreadKernel {
+    WorkFunctor work;
+
+    template <typename TAcc>
+    ALPAKA_FN_ACC void operator()(TAcc const& acc) const {
+        // Ensure only one thread executes
+        auto const globalThreadIdx = alpaka::getIdx<alpaka::Grid, alpaka::Threads>(acc);
+        auto const globalThreadExtent = alpaka::getWorkDiv<alpaka::Grid, alpaka::Threads>(acc);
+        auto const threadIdx = alpaka::mapIdx<1u>(globalThreadIdx, globalThreadExtent)[0];
+
+        if (threadIdx == 0) {
+            work(acc);
+        }
+    }
+};
+
+template <typename WorkFunctor>
+void run_single_thread(const WorkFunctor& work) {
+    auto devAcc = alpaka::getDevByIdx(alpaka::Platform<AlpakaAcc>{}, 0);
+    AlpakaQueue queue(devAcc);
+
+    AlpakaSingleThreadKernel<WorkFunctor> kernel{work};
+
+    alpaka::Vec<AlpakaDim, AlpakaIdx> const blocksPerGrid{1};
+    alpaka::Vec<AlpakaDim, AlpakaIdx> const threadsPerBlock{1};
+    alpaka::Vec<AlpakaDim, AlpakaIdx> const elementsPerThread{1};
+    auto const workDiv = alpaka::WorkDivMembers<AlpakaDim, AlpakaIdx>(blocksPerGrid, threadsPerBlock, elementsPerThread);
+
+    alpaka::exec<AlpakaAcc>(queue, workDiv, kernel);
+    alpaka::wait(queue);
+}
+
 #endif
 
 // =============================================================================
@@ -450,19 +547,19 @@ struct AlpakaGridStrideKernel {
     T* globalResult2;
     int64_t nWork;
     int64_t totalThreads;
-    
+
     template <typename TAcc>
     ALPAKA_FN_ACC void operator()(TAcc const& acc) const {
         auto const globalThreadIdx = alpaka::getIdx<alpaka::Grid, alpaka::Threads>(acc);
         auto const globalThreadExtent = alpaka::getWorkDiv<alpaka::Grid, alpaka::Threads>(acc);
         auto const threadIdx = alpaka::mapIdx<1u>(globalThreadIdx, globalThreadExtent)[0];
-        
+
         T localAcc1 = T{};
         T localAcc2 = T{};
         for (int64_t i = static_cast<int64_t>(threadIdx); i < nWork; i += totalThreads) {
-            work(i, localAcc1, localAcc2);
+            work(acc, i, localAcc1, localAcc2);
         }
-        
+
         alpaka::atomicAdd(acc, globalResult1, localAcc1, alpaka::hierarchy::Grids{});
         alpaka::atomicAdd(acc, globalResult2, localAcc2, alpaka::hierarchy::Grids{});
     }
@@ -474,18 +571,29 @@ template <typename WorkFunctor, typename T>
 __global__ void cuda_grid_stride_kernel(WorkFunctor work, T* globalResult1, T* globalResult2, 
                                          int64_t nWork, int64_t totalThreads) {
     int64_t threadIdx_global = blockIdx.x * blockDim.x + threadIdx.x;
-    
+
     T localAcc1 = T{};
     T localAcc2 = T{};
     for (int64_t i = threadIdx_global; i < nWork; i += totalThreads) {
-        work(i, localAcc1, localAcc2);
+        work(KernelAcc{}, i, localAcc1, localAcc2);
     }
-    
-    atomic_add(globalResult1, localAcc1);
-    atomic_add(globalResult2, localAcc2);
+
+    atomic_add(KernelAcc{}, globalResult1, localAcc1);
+    atomic_add(KernelAcc{}, globalResult2, localAcc2);
 }
 
 #endif
+
+// =============================================================================
+// Helper struct to hold launch context (e.g. SYCL queue) to unify signatures
+// =============================================================================
+struct LaunchContext {
+#if defined(PHIRST_BACKEND_SYCL)
+    sycl::queue* queue = nullptr;
+    LaunchContext(sycl::queue& q) : queue(&q) {}
+#endif
+    LaunchContext() = default;
+};
 
 // =============================================================================
 // launch_reduction_kernel - Backend-Specific Kernel Launch
@@ -495,17 +603,13 @@ __global__ void cuda_grid_stride_kernel(WorkFunctor work, T* globalResult1, T* g
 
 template <typename WorkFunctor, typename T>
 void launch_reduction_kernel(const GridConfig& cfg, int64_t nWork, const WorkFunctor& work,
-                              T* ptr1, T* ptr2
-#if defined(PHIRST_BACKEND_SYCL)
-                              , sycl::queue& queue
-#endif
-                              ) {
+                              T* ptr1, T* ptr2, const LaunchContext& ctx = LaunchContext{}) {
 #if defined(PHIRST_BACKEND_SERIAL)
     // Sequential - no parallelism, direct accumulation
     for (int64_t i = 0; i < nWork; ++i) {
-        work(i, *ptr1, *ptr2);
+        work(KernelAcc{}, i, *ptr1, *ptr2);
     }
-    
+
 #elif defined(PHIRST_BACKEND_KOKKOS)
     const int64_t totalThreads = cfg.totalThreads;
     Kokkos::parallel_for("grid_stride_reduce", cfg.totalThreads,
@@ -513,49 +617,50 @@ void launch_reduction_kernel(const GridConfig& cfg, int64_t nWork, const WorkFun
             T localAcc1 = T{};
             T localAcc2 = T{};
             for (int64_t idx = threadIdx; idx < nWork; idx += totalThreads) {
-                work(idx, localAcc1, localAcc2);
+                work(KernelAcc{}, idx, localAcc1, localAcc2);
             }
-            atomic_add(ptr1, localAcc1);
-            atomic_add(ptr2, localAcc2);
+            atomic_add(KernelAcc{}, ptr1, localAcc1);
+            atomic_add(KernelAcc{}, ptr2, localAcc2);
         }
     );
     Kokkos::fence();
-    
+
 #elif defined(PHIRST_BACKEND_SYCL)
+    if (!ctx.queue) return;
     const int64_t totalThreads = cfg.totalThreads;
     size_t globalSize = static_cast<size_t>(cfg.totalThreads);
     size_t localSize = static_cast<size_t>(cfg.blockSize);
-    
-    queue.submit([&](sycl::handler& h) {
+
+    ctx.queue->submit([&](sycl::handler& h) {
         h.parallel_for(sycl::nd_range<1>{globalSize, localSize},
             [=](sycl::nd_item<1> item) {
                 int64_t threadIdx = static_cast<int64_t>(item.get_global_id(0));
                 T localAcc1 = T{};
                 T localAcc2 = T{};
                 for (int64_t idx = threadIdx; idx < nWork; idx += totalThreads) {
-                    work(idx, localAcc1, localAcc2);
+                    work(KernelAcc{}, idx, localAcc1, localAcc2);
                 }
-                PHIRST_SYCL_ATOMIC_ADD(ptr1, localAcc1);
-                PHIRST_SYCL_ATOMIC_ADD(ptr2, localAcc2);
+                atomic_add(KernelAcc{}, ptr1, localAcc1);
+                atomic_add(KernelAcc{}, ptr2, localAcc2);
             }
         );
     });
-    queue.wait();
-    
+    ctx.queue->wait();
+
 #elif defined(PHIRST_BACKEND_ALPAKA)
     auto devAcc = alpaka::getDevByIdx(alpaka::Platform<AlpakaAcc>{}, 0);
     AlpakaQueue queue(devAcc);
-    
+
     AlpakaGridStrideKernel<WorkFunctor, T> kernel{work, ptr1, ptr2, nWork, cfg.totalThreads};
-    
+
     alpaka::Vec<AlpakaDim, AlpakaIdx> const blocksPerGrid{static_cast<AlpakaIdx>(cfg.numBlocks)};
     alpaka::Vec<AlpakaDim, AlpakaIdx> const threadsPerBlock{static_cast<AlpakaIdx>(cfg.blockSize)};
     alpaka::Vec<AlpakaDim, AlpakaIdx> const elementsPerThread{1};
     auto const workDiv = alpaka::WorkDivMembers<AlpakaDim, AlpakaIdx>(blocksPerGrid, threadsPerBlock, elementsPerThread);
-    
+
     alpaka::exec<AlpakaAcc>(queue, workDiv, kernel);
     alpaka::wait(queue);
-    
+
 #elif defined(PHIRST_BACKEND_CUDA)
     cuda_grid_stride_kernel<<<cfg.numBlocks, cfg.blockSize>>>(
         work, ptr1, ptr2, nWork, cfg.totalThreads
@@ -574,41 +679,41 @@ void launch_reduction_kernel(const GridConfig& cfg, int64_t nWork, const WorkFun
 // - Launch grid-stride kernel with atomics (backend-specific)
 // - Copy results back (shared)
 //
-// WorkFunctor signature: void operator()(int64_t workIdx, T& acc1, T& acc2) const
+// WorkFunctor signature: void operator()(const Acc& acc, int64_t workIdx, T& acc1, T& acc2) const
 // =============================================================================
 
 template <typename WorkFunctor, typename T>
 void grid_stride_reduce(int64_t nWork, const WorkFunctor& work, T& result1, T& result2) {
     auto cfg = GridConfig::compute(nWork);
-    
+
 #if defined(PHIRST_BACKEND_SERIAL)
     // Serial: no buffers needed, accumulate directly
     result1 = T{};
     result2 = T{};
     launch_reduction_kernel(cfg, nWork, work, &result1, &result2);
-    
+
 #elif defined(PHIRST_BACKEND_SYCL)
     // SYCL: needs queue passed to kernel launcher
     DeviceBuffer<T> deviceResult1(1);
     DeviceBuffer<T> deviceResult2(1);
     fill_buffer(deviceResult1, T{});
     fill_buffer(deviceResult2, T{});
-    
-    launch_reduction_kernel(cfg, nWork, work, deviceResult1.data(), deviceResult2.data(),
-                            deviceResult1.queue());
-    
+
+    LaunchContext ctx(deviceResult1.queue());
+    launch_reduction_kernel(cfg, nWork, work, deviceResult1.data(), deviceResult2.data(), ctx);
+
     deep_copy(&result1, deviceResult1, 1);
     deep_copy(&result2, deviceResult2, 1);
-    
+
 #else
     // Kokkos, Alpaka, CUDA: standard pattern
     DeviceBuffer<T> deviceResult1(1);
     DeviceBuffer<T> deviceResult2(1);
     fill_buffer(deviceResult1, T{});
     fill_buffer(deviceResult2, T{});
-    
+
     launch_reduction_kernel(cfg, nWork, work, deviceResult1.data(), deviceResult2.data());
-    
+
     deep_copy(&result1, deviceResult1, 1);
     deep_copy(&result2, deviceResult2, 1);
 #endif

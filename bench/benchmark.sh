@@ -348,23 +348,23 @@ if [ "$max_avg" -gt 0 ]; then
     echo "Relative performance:"
     if $SERIAL_OK && [ "$SERIAL_avg" -gt 0 ]; then
         rel=$(echo "scale=1; $SERIAL_avg * 100 / $max_avg" | bc)
-        printf "  Serial: %5.1f%%\n" $rel
+        printf "  Serial: %5s%%\n" "$rel"
     fi
     if $KOKKOS_OK && [ "$KOKKOS_avg" -gt 0 ]; then
         rel=$(echo "scale=1; $KOKKOS_avg * 100 / $max_avg" | bc)
-        printf "  Kokkos: %5.1f%%\n" $rel
+        printf "  Kokkos: %5s%%\n" "$rel"
     fi
     if $ALPAKA_OK && [ "$ALPAKA_avg" -gt 0 ]; then
         rel=$(echo "scale=1; $ALPAKA_avg * 100 / $max_avg" | bc)
-        printf "  Alpaka: %5.1f%%\n" $rel
+        printf "  Alpaka: %5s%%\n" "$rel"
     fi
     if $CUDA_OK && [ "$CUDA_avg" -gt 0 ]; then
         rel=$(echo "scale=1; $CUDA_avg * 100 / $max_avg" | bc)
-        printf "  CUDA:   %5.1f%%\n" $rel
+        printf "  CUDA:   %5s%%\n" "$rel"
     fi
     if $SYCL_OK && [ "$SYCL_avg" -gt 0 ]; then
         rel=$(echo "scale=1; $SYCL_avg * 100 / $max_avg" | bc)
-        printf "  SYCL:   %5.1f%%\n" $rel
+        printf "  SYCL:   %5s%%\n" "$rel"
     fi  
 fi
 
