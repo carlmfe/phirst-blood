@@ -22,7 +22,7 @@ void runBenchmark(const std::string& backendName,
                   uint64_t seed) {
     
     std::cout << "----------------------------------------" << std::endl;
-    std::cout << "Backend: " << backendName << std::endl;
+    std::cout << "Backend: " << backendName << " (VEGAS)" << std::endl;
     std::cout << "----------------------------------------" << std::endl;
     
     double mean = 0.0;
@@ -32,15 +32,17 @@ void runBenchmark(const std::string& backendName,
     {
         phirst::RamboIntegrator<Integrand, nParticles, Algorithm> warmup(
             std::min(nEvents / 10, int64_t(10000)), integrand);
-        warmup.run(cmEnergy, masses, mean, error, seed);
+        warmup.runVegas(cmEnergy, masses, mean, error, seed);
+        // warmup.run(cmEnergy, masses, mean, error, seed);
     }
 
     // Timed run
     auto start = std::chrono::high_resolution_clock::now();
 
     phirst::RamboIntegrator<Integrand, nParticles, Algorithm> integrator(nEvents, integrand);
-    integrator.run(cmEnergy, masses, mean, error, seed);
-    
+    integrator.runVegas(cmEnergy, masses, mean, error, seed);
+    // integrator.run(cmEnergy, masses, mean, error, seed);
+
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
     double timeMs = duration.count() / 1000.0;
@@ -63,11 +65,10 @@ int main(int argc, char* argv[]) {
     Kokkos::initialize(argc, argv);
     {
 #elif defined(PHIRST_BACKEND_SYCL)
-    sycl::queue queue{sycl::default_selector_v};
-    std::cout << "SYCL Device: " << queue.get_device().get_info<sycl::info::device::name>() << std::endl;
+    // The default queue is now managed internally by the backend
 #endif
 
-    const int64_t nEvents = (argc > 1) ? std::stoll(argv[1]) : 100000;
+    const int64_t nEvents = (argc > 1) ? std::stoll(argv[1]) : 1000000;
     const uint64_t seed = (argc > 2) ? std::stoull(argv[2]) : 5489ULL;
     const double cmEnergy = 91.2;
     constexpr int nParticles = 2;
