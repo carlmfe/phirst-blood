@@ -364,7 +364,7 @@ public:
      * @param boostVec 3-component velocity vector `(beta_x, beta_y, beta_z)`.
      */
     PHIRST_HOST_DEVICE
-    auto boost(double p[4], const double* boostVec) const -> void {
+    static auto boost(double p[4], const double* boostVec) -> void {
         double b2 = boostVec[0]*boostVec[0] + boostVec[1]*boostVec[1] + boostVec[2]*boostVec[2];
         if (b2 >= 1.0 || b2 <= 0.0) return; // Invalid boost; leave 'p' unchanged.
         double gamma = 1.0 / math::sqrt(1.0 - b2);
@@ -455,7 +455,6 @@ public:
             double MPrev = cmEnergy;
             double MCurr = MPrev;
             double boostVec[3];
-            double cosTheta, sinTheta, phi, q;
 
             // u determines intermediate mass ratios – only needed for N > 3
             [[maybe_unused]] double u[nParticles > 3 ? nParticles - 2 : 1];
@@ -473,10 +472,10 @@ public:
                     }
                 }
 
-                cosTheta = 2.0 * r[nParticles - 4 + 2 * i] - 1.0;
-                sinTheta = math::sqrt(1.0 - cosTheta * cosTheta);
-                phi = math::twoPi * r[nParticles - 3 + 2 * i];
-                q = 0.5 * (MPrev * MPrev - MCurr * MCurr) / MPrev;
+                double cosTheta = 2.0 * r[nParticles - 4 + 2 * i] - 1.0;
+                double sinTheta = math::sqrt(1.0 - cosTheta * cosTheta);
+                double phi = math::twoPi * r[nParticles - 3 + 2 * i];
+                double q = 0.5 * (MPrev * MPrev - MCurr * MCurr) / MPrev;
 
                 p[i - 1][0] = q;
                 p[i - 1][1] = q * sinTheta * math::cos(phi);

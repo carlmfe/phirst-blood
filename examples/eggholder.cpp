@@ -1,5 +1,5 @@
 // =============================================================================
-// RAMBO Monte Carlo Integration - Unified Multi-Backend Implementation
+// RAMBO Monte Carlo Integration - Eggholder Test Function
 // =============================================================================
 
 #include <iostream>
@@ -15,14 +15,14 @@
 // Benchmark helper
 // =============================================================================
 template <typename Integrand, int nParticles, typename Algorithm = phirst::RamboDietAlgorithm<nParticles>>
-void runBenchmark(const std::string& backendName, 
-                  int64_t nEvents, 
-                  double cmEnergy, 
+void runBenchmark(const std::string& backendName,
+                  int64_t nEvents,
+                  double cmEnergy,
                   const double* masses,
                   const Integrand& integrand,
                   uint64_t seed,
                   bool useVegas) {
-    
+
     std::cout << "----------------------------------------" << std::endl;
     std::cout << "Backend: " << backendName;
     if (useVegas) {
@@ -32,10 +32,10 @@ void runBenchmark(const std::string& backendName,
     }
     std::cout << std::endl;
     std::cout << "----------------------------------------" << std::endl;
-    
+
     double mean = 0.0;
     double error = 0.0;
-    
+
     // Warmup run
     {
         phirst::RamboIntegrator<Integrand, nParticles, Algorithm> warmup(
@@ -60,7 +60,7 @@ void runBenchmark(const std::string& backendName,
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
     double timeMs = duration.count() / 1000.0;
-    
+
     std::cout << "  Mean: " << mean << std::endl;
     std::cout << "  Error: " << error << std::endl;
     std::cout << "  Time: " << timeMs << " ms" << std::endl;
@@ -82,13 +82,15 @@ int main(int argc, char* argv[]) {
 
     const int64_t nEvents = (argc > 1) ? std::stoll(argv[1]) : 1000000;
     const uint64_t seed = (argc > 2) ? std::stoull(argv[2]) : 5489ULL;
+    // Parse an optional 3rd argument to select VEGAS vs flat MC. Default to VEGAS.
     const bool useVegas = (argc > 3) ? (std::stoi(argv[3]) != 0) : true;
 
-    const double cmEnergy = 91.2;
-    constexpr int nParticles = 2;
-    
+    const double cmEnergy = 10000.0;
+    // The EggholderIntegrand provided requires exactly 3 particles
+    constexpr int nParticles = 3;
+
     std::cout << "========================================" << std::endl;
-    std::cout << "RAMBO Monte Carlo Integrator : Drell-Yan" << std::endl;
+    std::cout << "RAMBO Monte Carlo Integrator : Eggholder Test" << std::endl;
     std::cout << "========================================" << std::endl;
     std::cout << "Library version: " << phirst::VERSION_MAJOR << "."
               << phirst::VERSION_MINOR << "." << phirst::VERSION_PATCH << std::endl;
@@ -99,40 +101,21 @@ int main(int argc, char* argv[]) {
     std::cout << "Number of particles: " << nParticles << std::endl;
     std::cout << "Integration Mode: " << (useVegas ? "VEGAS" : "Flat MC") << std::endl;
     std::cout << std::endl;
-    
-    constexpr double electronMass = 0.000511;
-    double masses[nParticles] = {electronMass, electronMass};
-    
-    const double quarkCharge = 2.0 / 3.0;
-    const double alphaEM = 1.0 / 137.035999;
-    phirst::DrellYanIntegrand integrand(quarkCharge, alphaEM);
-    
+
+    double masses[nParticles] = {0.0, 0.0, 0.0};
+
+    const double lambda = 1000000.0;
+    phirst::EggholderIntegrand integrand(lambda);
+
     std::cout << "----------------------------------------" << std::endl;
-    std::cout << "Drell-Yan Process: q qbar -> gamma* -> e+ e-" << std::endl;
+    std::cout << "Eggholder Integrand Parameters:" << std::endl;
     std::cout << "----------------------------------------" << std::endl;
-    std::cout << "Quark charge (e_q): " << quarkCharge << std::endl;
-    std::cout << "Fine structure constant (alpha): " << alphaEM << std::endl;
+    std::cout << "Lambda squared: " << lambda << std::endl;
     std::cout << std::endl;
-    
-    runBenchmark<phirst::DrellYanIntegrand, nParticles, phirst::RamboDietAlgorithm<nParticles>>(
+
+    runBenchmark<phirst::EggholderIntegrand, nParticles, phirst::RamboDietAlgorithm<nParticles>>(
         phirst::BACKEND_NAME, nEvents, cmEnergy, masses, integrand, seed, useVegas);
-    
-    // Analytic verification
-    std::cout << "========================================" << std::endl;
-    std::cout << "Analytic Verification" << std::endl;
-    std::cout << "========================================" << std::endl;
-    double s = cmEnergy * cmEnergy;
-    double analyticSigma = phirst::DrellYanIntegrand::analyticCrossSection(s, quarkCharge, alphaEM);
-    
-    std::cout << std::scientific << std::setprecision(6);
-    std::cout << "Analytic cross-section:" << std::endl;
-    std::cout << "  sigma = 4*pi*alpha^2*e_q^2 / (3*s) * hbarc^2" << std::endl;
-    std::cout << "  s = " << s << " GeV^2" << std::endl;
-    std::cout << "  sigma = " << analyticSigma << " mb" << std::endl;
-    std::cout << "  sigma = " << analyticSigma * 1e6 << " nb" << std::endl;
-    std::cout << "  sigma = " << analyticSigma * 1e9 << " pb" << std::endl;
-    std::cout << std::endl;
-    
+
     std::cout << "======================================" << std::endl;
     std::cout << "Benchmark complete." << std::endl;
     std::cout << "======================================" << std::endl;

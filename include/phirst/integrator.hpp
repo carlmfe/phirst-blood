@@ -20,6 +20,8 @@
 #include "phase_space.hpp"
 #include "vegas.hpp"
 #include "contrib/HEPUtils/Vectors.h"
+#include <iostream>
+#include <algorithm>
 
 namespace phirst {
 
@@ -179,6 +181,12 @@ public:
 
         VegasParams params;
         params.nDim = Generator::nRandomNumbers;
+        if (params.nCallsPerIter < 0) {
+            params.nCallsPerIter = std::min<int>(100 * math::pow(10, params.nDim), 1000000);
+        }
+        if (params.nBins < 0) {
+            params.nBins = std::min<int>(math::pow(0.5 * params.nCallsPerIter, 1.0 / (double)params.nDim), 50);
+        }
 
         // Allocate device memory for the VEGAS grid
         DeviceBuffer<double> d_xi(params.nDim * (params.nBins + 1));
@@ -218,7 +226,7 @@ public:
             totalResult.sum2 += iterSum2;
 
             if (iter < nIters - 1) {
-                AdaptGridWorkFunctor adaptFunctor{grid};
+                AdaptGridWorkFunctor<100> adaptFunctor{grid};
                 run_single_thread(adaptFunctor);
             }
         }

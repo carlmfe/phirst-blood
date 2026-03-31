@@ -172,8 +172,9 @@ endif()
 
 message(STATUS "PHIRST Backend: ${PHIRST_BACKEND}")
 
-# Name of Drell-Yan example executable based on backend
-string(TOLOWER "ex_drell_yan_${PHIRST_BACKEND}" EXENAME)
+# Name of examples based on backend
+string(TOLOWER "ex_drell_yan_${PHIRST_BACKEND}" EXENAME_DY)
+string(TOLOWER "ex_eggholder_${PHIRST_BACKEND}" EXENAME_EGG)
 
 # =============================================================================
 # Common Settings
@@ -187,7 +188,8 @@ endif()
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Source files
-set(SOURCES examples/drell_yan.cpp)
+set(SOURCES_DY examples/drell_yan.cpp)
+set(SOURCES_EGG examples/eggholder.cpp)
 
 # =============================================================================
 # Backend-Specific Configuration
@@ -200,9 +202,13 @@ if(PHIRST_BACKEND STREQUAL "SERIAL")
     set(CMAKE_CXX_STANDARD 20)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
     
-    add_executable(${EXENAME} ${SOURCES})
-    target_include_directories(${EXENAME} PRIVATE include)
-    target_compile_definitions(${EXENAME} PRIVATE PHIRST_BACKEND_SERIAL)
+    add_executable(${EXENAME_DY} ${SOURCES_DY})
+    target_include_directories(${EXENAME_DY} PRIVATE include)
+    target_compile_definitions(${EXENAME_DY} PRIVATE PHIRST_BACKEND_SERIAL)
+
+    add_executable(${EXENAME_EGG} ${SOURCES_EGG})
+    target_include_directories(${EXENAME_EGG} PRIVATE include)
+    target_compile_definitions(${EXENAME_EGG} PRIVATE PHIRST_BACKEND_SERIAL)
     
 elseif(PHIRST_BACKEND STREQUAL "CUDA")
     # ---------------------------
@@ -228,13 +234,20 @@ elseif(PHIRST_BACKEND STREQUAL "CUDA")
     endif()
     message(STATUS "CUDA architectures: ${CMAKE_CUDA_ARCHITECTURES}")
     
-    # For CUDA, rename drell_yan.cpp to drell_yan.cu
-    set_source_files_properties(examples/drell_yan.cpp PROPERTIES LANGUAGE CUDA)
+    # For CUDA, rename .cpp to .cu
+    set_source_files_properties(examples/drell_yan.cpp examples/eggholder.cpp PROPERTIES LANGUAGE CUDA)
     
-    add_executable(${EXENAME} ${SOURCES})
-    target_include_directories(${EXENAME} PRIVATE include)
-    target_compile_definitions(${EXENAME} PRIVATE PHIRST_BACKEND_CUDA)
-    target_compile_options(${EXENAME} PRIVATE
+    add_executable(${EXENAME_DY} ${SOURCES_DY})
+    target_include_directories(${EXENAME_DY} PRIVATE include)
+    target_compile_definitions(${EXENAME_DY} PRIVATE PHIRST_BACKEND_CUDA)
+    target_compile_options(${EXENAME_DY} PRIVATE
+        $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>
+    )
+
+    add_executable(${EXENAME_EGG} ${SOURCES_EGG})
+    target_include_directories(${EXENAME_EGG} PRIVATE include)
+    target_compile_definitions(${EXENAME_EGG} PRIVATE PHIRST_BACKEND_CUDA)
+    target_compile_options(${EXENAME_EGG} PRIVATE
         $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>
     )
     
@@ -247,10 +260,15 @@ elseif(PHIRST_BACKEND STREQUAL "KOKKOS")
     
     find_package(Kokkos REQUIRED)
     
-    add_executable(${EXENAME} ${SOURCES})
-    target_include_directories(${EXENAME} PRIVATE include)
-    target_compile_definitions(${EXENAME} PRIVATE PHIRST_BACKEND_KOKKOS)
-    target_link_libraries(${EXENAME} PRIVATE Kokkos::kokkos)
+    add_executable(${EXENAME_DY} ${SOURCES_DY})
+    target_include_directories(${EXENAME_DY} PRIVATE include)
+    target_compile_definitions(${EXENAME_DY} PRIVATE PHIRST_BACKEND_KOKKOS)
+    target_link_libraries(${EXENAME_DY} PRIVATE Kokkos::kokkos)
+
+    add_executable(${EXENAME_EGG} ${SOURCES_EGG})
+    target_include_directories(${EXENAME_EGG} PRIVATE include)
+    target_compile_definitions(${EXENAME_EGG} PRIVATE PHIRST_BACKEND_KOKKOS)
+    target_link_libraries(${EXENAME_EGG} PRIVATE Kokkos::kokkos)
     
 elseif(PHIRST_BACKEND STREQUAL "ALPAKA")
     # ---------------------------
@@ -280,10 +298,15 @@ elseif(PHIRST_BACKEND STREQUAL "ALPAKA")
     
     find_package(alpaka REQUIRED)
     
-    alpaka_add_executable(${EXENAME} ${SOURCES})
-    target_include_directories(${EXENAME} PRIVATE include)
-    target_compile_definitions(${EXENAME} PRIVATE PHIRST_BACKEND_ALPAKA)
-    target_link_libraries(${EXENAME} PRIVATE alpaka::alpaka)
+    alpaka_add_executable(${EXENAME_DY} ${SOURCES_DY})
+    target_include_directories(${EXENAME_DY} PRIVATE include)
+    target_compile_definitions(${EXENAME_DY} PRIVATE PHIRST_BACKEND_ALPAKA)
+    target_link_libraries(${EXENAME_DY} PRIVATE alpaka::alpaka)
+
+    alpaka_add_executable(${EXENAME_EGG} ${SOURCES_EGG})
+    target_include_directories(${EXENAME_EGG} PRIVATE include)
+    target_compile_definitions(${EXENAME_EGG} PRIVATE PHIRST_BACKEND_ALPAKA)
+    target_link_libraries(${EXENAME_EGG} PRIVATE alpaka::alpaka)
     
 elseif(PHIRST_BACKEND STREQUAL "SYCL")
     # ---------------------------
@@ -300,25 +323,41 @@ elseif(PHIRST_BACKEND STREQUAL "SYCL")
     
     message(STATUS "SYCL device backend: ${SYCL_BACKEND}")
     
-    add_executable(${EXENAME} ${SOURCES})
-    target_include_directories(${EXENAME} PRIVATE include)
-    target_compile_definitions(${EXENAME} PRIVATE PHIRST_BACKEND_SYCL)
+    add_executable(${EXENAME_DY} ${SOURCES_DY})
+    target_include_directories(${EXENAME_DY} PRIVATE include)
+    target_compile_definitions(${EXENAME_DY} PRIVATE PHIRST_BACKEND_SYCL)
+
+    add_executable(${EXENAME_EGG} ${SOURCES_EGG})
+    target_include_directories(${EXENAME_EGG} PRIVATE include)
+    target_compile_definitions(${EXENAME_EGG} PRIVATE PHIRST_BACKEND_SYCL)
     
     if(SYCL_BACKEND STREQUAL "CUDA")
         set(CUDA_GPU_ARCH "sm_70" CACHE STRING "CUDA GPU architecture")
-        target_compile_options(${EXENAME} PRIVATE
+        target_compile_options(${EXENAME_DY} PRIVATE
             -fsycl
             -fsycl-targets=nvptx64-nvidia-cuda
             -Xsycl-target-backend
             --cuda-gpu-arch=${CUDA_GPU_ARCH}
         )
-        target_link_options(${EXENAME} PRIVATE
+        target_link_options(${EXENAME_DY} PRIVATE
+            -fsycl
+            -fsycl-targets=nvptx64-nvidia-cuda
+        )
+        target_compile_options(${EXENAME_EGG} PRIVATE
+            -fsycl
+            -fsycl-targets=nvptx64-nvidia-cuda
+            -Xsycl-target-backend
+            --cuda-gpu-arch=${CUDA_GPU_ARCH}
+        )
+        target_link_options(${EXENAME_EGG} PRIVATE
             -fsycl
             -fsycl-targets=nvptx64-nvidia-cuda
         )
     else()
-        target_compile_options(${EXENAME} PRIVATE -fsycl)
-        target_link_options(${EXENAME} PRIVATE -fsycl)
+        target_compile_options(${EXENAME_DY} PRIVATE -fsycl)
+        target_link_options(${EXENAME_DY} PRIVATE -fsycl)
+        target_compile_options(${EXENAME_EGG} PRIVATE -fsycl)
+        target_link_options(${EXENAME_EGG} PRIVATE -fsycl)
     endif()
     
 else()

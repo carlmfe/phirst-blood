@@ -15,9 +15,9 @@ namespace phirst {
 /** \brief VEGAS configuration parameters. */
 struct VegasParams {
     int nDim = 2;                 // Number of integration dimensions
-    int nBins = 50;               // Number of bins per dimension
+    int nBins = -1;               // Number of bins per dimension
     int nIterations = 10;         // Number of adaptation iterations
-    int64_t nCallsPerIter = 100000; // Samples per iteration
+    int64_t nCallsPerIter = -1; // Samples per iteration
     double alpha = 1.5;           // Grid adaptation damping parameter
     bool verbose = true;          // Print iteration results
     int minIterations = 1;        // Do not stop before this many iterations
