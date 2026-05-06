@@ -22,6 +22,7 @@ immediately** and tell the user which agent to invoke with a ready-to-use prompt
 | If you encounter… | Stop and say… |
 |-------------------|---------------|
 | A build environment failure (missing module, CMake error, wrong arch) | "This is a Deployment task. Switch to the Deployment agent and ask: *[describe the issue]*" |
+| A request to add, modify, or fix CI workflows (`.github/workflows/`) | "CI workflows are owned by the Deployment agent. Switch to the Deployment agent and ask: *[describe what the workflow should do]*" |
 | A bug or API change needed in `include/phirst/` | "This is a C++ Development task. Switch to the C++ Development agent and ask: *[describe the issue]*" |
 | Changes needed in `python/` or the Python test suite | "This is a Python Interface task. Switch to the Python Interface agent and ask: *[describe the issue]*" |
 
@@ -120,41 +121,39 @@ the same value.
 
 ```
 tests/
-├── CMakeLists.txt          # GoogleTest setup; one executable per backend
-├── test_phirst.cpp         # Phase space invariants, reproducibility
-├── test_integrator.cpp     # MCWorkFunctor, RamboIntegrator.run(), RamboIntegrator.runVegas()
-├── test_integrands.cpp     # EggholderIntegrand, ConstantIntegrand, DrellYanIntegrand
-└── test_consistency.cpp    # Cross-backend reference value assertions (SERIAL defines refs)
+├── CMakeLists.txt          # GoogleTest setup; backend-aware (inherits PHIRST_BACKEND from root)
+├── test_phirst.cpp         # Math functions, parallel infrastructure, basic phase space
+├── test_integrator.cpp     # IntegrationResult, MCWorkFunctor, RamboIntegrator.run()
+├── test_integrands.cpp     # All four integrands (Constant, Eggholder, MandelstamS, DrellYan)
+├── test_phase_space.cpp    # RamboAlgorithm and RamboDietAlgorithm: massless + massive, N=2–4
+└── test_vegas.cpp          # VegasGrid primitives, VegasWorkFunctor, RamboIntegrator.runVegas()
 ```
 
 ---
 
-## CMakeLists.txt Pattern for Multi-Backend Tests
+## Building and Running Tests
 
-To compile tests for GPU backends, the test `CMakeLists.txt` must be invoked as a
-sub-project of the main build (so it inherits the `PHIRST_BACKEND_*` definition):
+Tests are built via the root CMake with `-DPHIRST_BUILD_TESTS=ON`. The backend is
+inherited automatically — no separate test configure step is needed:
 
-```cmake
-# In the root CMakeLists.txt (after backend is set):
-add_subdirectory(tests)
+```bash
+# Serial (development default)
+cmake -S . -B build-serial -DPHIRST_BACKEND=SERIAL -DPHIRST_BUILD_TESTS=ON
+cmake --build build-serial --parallel
+ctest --test-dir build-serial --output-on-failure
+
+# CUDA backend (requires module load cuda/13.0)
+cmake -S . -B build-cuda -DPHIRST_BACKEND=CUDA -DPHIRST_BUILD_TESTS=ON -DPHIRST_GPU_ARCH=89
+cmake --build build-cuda --parallel
+ctest --test-dir build-cuda --output-on-failure
 ```
 
-Inside `tests/CMakeLists.txt`, use the same `PHIRST_BACKEND_*` define as the parent build:
+Standalone `cmake -S tests -B build-tests` still works for serial-only development.
+Pass `-DPHIRST_BACKEND=SERIAL` explicitly to be safe.
 
-```cmake
-# Inherit backend from parent (already defined by root CMakeLists.txt)
-add_executable(test_phirst
-    test_phirst.cpp
-    test_integrator.cpp
-    test_integrands.cpp
-    test_consistency.cpp
-)
-target_include_directories(test_phirst PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR})
-# Backend define is inherited from the root build; do NOT hardcode PHIRST_BACKEND_SERIAL here
-target_link_libraries(test_phirst PRIVATE GTest::gtest_main)
-```
-
-This allows `ctest` to run the test binary compiled for the active backend.
+**CI workflow ownership**: CI workflows (`.github/workflows/`) are owned by the
+**Deployment agent**. Do not add or modify workflow files — refer the user to the
+Deployment agent instead.
 
 ---
 
@@ -240,24 +239,6 @@ TEST(PhaseSpace, MomentumConservation) {
   pipeline behaviour.
 - New integrands must have at least one test verifying their `evaluate()` returns finite,
   physically reasonable values for a typical momentum configuration.
-
----
-
-## Running Tests
-
-```bash
-# Build and run SERIAL backend tests (fastest, for development)
-cmake -S . -B build-serial -DPHIRST_BACKEND=SERIAL
-cmake --build build-serial --parallel
-cd build-serial && ctest --output-on-failure
-
-# Build and run CUDA backend tests (requires sm_89 GPU)
-cmake -S . -B build-cuda -DPHIRST_BACKEND=CUDA
-cmake --build build-cuda --parallel
-cd build-cuda && ctest --output-on-failure
-```
-
-Run tests for each backend by swapping `-DPHIRST_BACKEND=<X>` and the corresponding module.
 
 ---
 
