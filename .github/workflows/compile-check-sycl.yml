@@ -1,0 +1,165 @@
+name: Compile Check — SYCL
+
+# Verify that the SYCL backend compiles for all targeted architectures.
+# This is a compile-only check; no GPU execution is performed.
+# Architecture matrix mirrors deploy/architectures.yml (SYCL backend entries).
+#
+# NVIDIA architectures: fully active on the current self-hosted-gpu runner.
+#
+# AMD architectures: NOT YET ACTIVE.
+#   Reasons:
+#     1. No self-hosted-amd runner is available.
+#     2. CMakeLists.txt SYCL section does not yet emit AMD AOT flags
+#        (-fsycl-targets=amdgcn-amd-amdhsa --offload-arch=gfxXXX).
+#        This requires a C++ Development task.
+#   See deploy/architectures.yml for AMD entries and their notes.
+#   These steps are kept here (disabled) as a template for when the runner
+#   and CMakeLists.txt support are ready.
+#
+# Intel architectures: NOT YET ACTIVE.
+#   Reasons:
+#     1. No self-hosted-intel runner is available.
+#     2. CMakeLists.txt SYCL/INTEL path emits -fsycl only (JIT); AOT requires
+#        -fsycl-targets=spir64_gen — a C++ Development task.
+#   See deploy/architectures.yml for Intel entries and their notes.
+
+on:
+  push:
+    branches: [main, dev/**]
+    paths:
+      - 'include/**'
+      - 'examples/**'
+      - 'CMakeLists.txt'
+      - 'deploy/architectures.yml'
+      - '.github/workflows/compile-check-sycl.yml'
+  pull_request:
+    paths:
+      - 'include/**'
+      - 'examples/**'
+      - 'CMakeLists.txt'
+      - 'deploy/architectures.yml'
+      - '.github/workflows/compile-check-sycl.yml'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # NVIDIA — SYCL/CUDA backend, all targeted NVIDIA architectures
+  # ---------------------------------------------------------------------------
+  compile-check-sycl-nvidia:
+    name: "SYCL/CUDA ${{ matrix.arch }}"
+    runs-on: [self-hosted, gpu]
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - "sm_70"   # NVIDIA V100 (Volta)
+          - "sm_75"   # NVIDIA T4 (Turing)
+          - "sm_80"   # NVIDIA A100 (Ampere)
+          - "sm_86"   # NVIDIA RTX 30xx (Ampere desktop)
+          - "sm_89"   # NVIDIA RTX 40xx / RTX 2000 Ada — current runner
+          - "sm_90"   # NVIDIA H100 / GH200 (Hopper)
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (SYCL/CUDA, ${{ matrix.arch }})
+        shell: bash -l {0}
+        run: |
+          module load sycl/cuda
+          cmake -S . -B build-compile-check-sycl-${{ matrix.arch }} \
+            -DPHIRST_BACKEND=SYCL \
+            -DSYCL_BACKEND=CUDA \
+            -DPHIRST_GPU_ARCH=${{ matrix.arch }} \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build (SYCL/CUDA, ${{ matrix.arch }})
+        shell: bash -l {0}
+        run: |
+          module load sycl/cuda
+          cmake --build build-compile-check-sycl-${{ matrix.arch }} --parallel
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf build-compile-check-sycl-${{ matrix.arch }}
+
+  # ---------------------------------------------------------------------------
+  # AMD — SYCL/AMD backend
+  # DISABLED: requires self-hosted-amd runner + AMD AOT flags in CMakeLists.txt
+  # See deploy/architectures.yml for full architecture list and requirements.
+  # To enable: add a runner with label 'self-hosted-amd', implement AMD SYCL
+  # target flags in CMakeLists.txt, then replace 'if: false' with the runner label.
+  # ---------------------------------------------------------------------------
+  compile-check-sycl-amd:
+    name: "SYCL/AMD ${{ matrix.arch }} (disabled — no runner)"
+    runs-on: [self-hosted, gpu]
+    if: false   # Remove when self-hosted-amd runner is available
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: "gfx908", name: "AMD MI100 (CDNA1)" }
+          - { arch: "gfx90a", name: "AMD MI250/MI250X (CDNA2)" }
+          - { arch: "gfx942", name: "AMD MI300X (CDNA3)" }
+          - { arch: "gfx1100", name: "AMD RX 7900 XT (RDNA3)" }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # TODO: replace 'module load sycl/cuda' with AMD-capable SYCL module
+      # TODO: add -DSYCL_BACKEND=AMD once CMakeLists.txt supports AMD AOT flags
+      - name: Configure (SYCL/AMD, ${{ matrix.arch }})
+        shell: bash -l {0}
+        run: |
+          cmake -S . -B build-compile-check-sycl-${{ matrix.arch }} \
+            -DPHIRST_BACKEND=SYCL \
+            -DSYCL_BACKEND=AMD \
+            -DPHIRST_GPU_ARCH=${{ matrix.arch }} \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build (SYCL/AMD, ${{ matrix.arch }})
+        shell: bash -l {0}
+        run: cmake --build build-compile-check-sycl-${{ matrix.arch }} --parallel
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf build-compile-check-sycl-${{ matrix.arch }}
+
+  # ---------------------------------------------------------------------------
+  # Intel — SYCL/Intel backend
+  # DISABLED: requires self-hosted-intel runner + Intel oneAPI DPC++
+  # See deploy/architectures.yml for full architecture list and requirements.
+  # To enable: add a runner with label 'self-hosted-intel', then replace
+  # 'if: false' with the runner label.
+  # ---------------------------------------------------------------------------
+  compile-check-sycl-intel:
+    name: "SYCL/Intel ${{ matrix.arch }} (disabled — no runner)"
+    runs-on: [self-hosted, gpu]
+    if: false   # Remove when self-hosted-intel runner is available
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: "spir64_gen", name: "Intel Data Center GPU Max (Ponte Vecchio)" }
+          - { arch: "spir64_gen", name: "Intel Arc A770 (Alchemist)" }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # TODO: replace with Intel oneAPI module load
+      - name: Configure (SYCL/Intel, ${{ matrix.arch }})
+        shell: bash -l {0}
+        run: |
+          cmake -S . -B build-compile-check-sycl-intel \
+            -DPHIRST_BACKEND=SYCL \
+            -DSYCL_BACKEND=INTEL \
+            -DCMAKE_CXX_COMPILER=icpx \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build (SYCL/Intel)
+        shell: bash -l {0}
+        run: cmake --build build-compile-check-sycl-intel --parallel
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf build-compile-check-sycl-intel

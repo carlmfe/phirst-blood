@@ -1,0 +1,60 @@
+name: Compile Check — Alpaka
+
+# Verify that the Alpaka/CUDA backend compiles for all targeted NVIDIA architectures.
+# This is a compile-only check; no GPU execution is performed.
+# Architecture matrix mirrors deploy/architectures.yml (NVIDIA entries, Alpaka backend).
+
+on:
+  push:
+    branches: [main, dev/**]
+    paths:
+      - 'include/**'
+      - 'examples/**'
+      - 'CMakeLists.txt'
+      - 'deploy/architectures.yml'
+      - '.github/workflows/compile-check-alpaka.yml'
+  pull_request:
+    paths:
+      - 'include/**'
+      - 'examples/**'
+      - 'CMakeLists.txt'
+      - 'deploy/architectures.yml'
+      - '.github/workflows/compile-check-alpaka.yml'
+
+jobs:
+  compile-check-alpaka:
+    name: "Alpaka/CUDA sm_${{ matrix.arch }}"
+    runs-on: [self-hosted, gpu]
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - "70"   # NVIDIA V100 (Volta)
+          - "75"   # NVIDIA T4 (Turing)
+          - "80"   # NVIDIA A100 (Ampere)
+          - "86"   # NVIDIA RTX 30xx (Ampere desktop)
+          - "89"   # NVIDIA RTX 40xx / RTX 2000 Ada (Ada Lovelace) — current runner
+          - "90"   # NVIDIA H100 / GH200 (Hopper)
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (Alpaka/CUDA, sm_${{ matrix.arch }})
+        shell: bash -l {0}
+        run: |
+          module load alpaka/2.0.0_cuda
+          cmake -S . -B build-compile-check-alpaka-${{ matrix.arch }} \
+            -DPHIRST_BACKEND=ALPAKA \
+            -DALPAKA_BACKEND=CUDA \
+            -DPHIRST_GPU_ARCH=${{ matrix.arch }} \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build (Alpaka/CUDA, sm_${{ matrix.arch }})
+        shell: bash -l {0}
+        run: |
+          module load alpaka/2.0.0_cuda
+          cmake --build build-compile-check-alpaka-${{ matrix.arch }} --parallel
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf build-compile-check-alpaka-${{ matrix.arch }}
