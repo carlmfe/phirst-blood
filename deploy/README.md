@@ -25,23 +25,22 @@ architectures. Find them in `.github/workflows/compile-check-*.yml`.
 | `compile-check-cuda.yml` | CUDA | All NVIDIA archs (sm_70 – sm_90) |
 | `compile-check-alpaka.yml` | Alpaka/CUDA | All NVIDIA archs (sm_70 – sm_90) |
 | `compile-check-sycl.yml` | SYCL/CUDA | All NVIDIA archs (sm_70 – sm_90) |
+| `compile-check-sycl.yml` | SYCL/Intel | JIT (all Intel GPUs at runtime) |
 | `compile-check-kokkos.yml` | Kokkos | Single build (arch baked into module) |
-| `compile-check-hip.yml` | HIP | All AMD archs (disabled — no runner yet) |
+| `compile-check-hip.yml` | HIP | All AMD archs (gfx908, gfx90a, gfx942, gfx1100) |
 
-AMD and Intel architectures are defined in `architectures.yml` but their CI steps
-are not yet active because:
-- **AMD**: requires a self-hosted runner with ROCm + Kokkos/HIP or SYCL/AMD toolchain,
-  and CMakeLists.txt needs AMD AOT flags added (C++ Development task)
-- **Intel**: requires a self-hosted runner with Intel oneAPI DPC++ and AOT support
-  in CMakeLists.txt (C++ Development task)
+HIP cross-compilation for all AMD architectures runs on the same `self-hosted-gpu`
+runner — ROCm 6.3's `amdclang++` can target any `gfx*` offline without AMD hardware.
+AMD SYCL AOT and SYCL AMD steps remain disabled pending CMakeLists.txt AOT support
+(C++ Development task).
 
 ## Runner Labels
 
 | Label | Hardware | Available |
 |-------|----------|-----------|
-| `self-hosted-gpu` | NVIDIA GPU (RTX 2000 Ada, sm_89) | ✅ Yes |
-| `self-hosted-amd` | AMD GPU with ROCm | ❌ Not yet |
-| `self-hosted-intel` | Intel GPU with oneAPI | ❌ Not yet |
+| `self-hosted-gpu` | NVIDIA GPU (RTX 2000 Ada, sm_89) | ✅ Yes (also runs HIP cross-compilation) |
+| `self-hosted-amd` | AMD GPU with ROCm | ❌ Not yet (needed for HIP execution, SYCL/AMD) |
+| `self-hosted-intel` | Intel GPU with oneAPI | ❌ Not yet (needed for SYCL/Intel AOT) |
 
 ## Adding a New Architecture
 

@@ -4,11 +4,9 @@ name: Compile Check — HIP
 # This is a compile-only check; no GPU execution is performed.
 # Architecture matrix mirrors deploy/architectures.yml (AMD entries, HIP backend).
 #
-# DISABLED: requires a self-hosted-amd runner with ROCm installed.
-# All jobs use 'if: false' as a placeholder. When the runner is available:
-#   1. Register it with the label 'self-hosted-amd'
-#   2. Remove 'if: false' from the job
-#   3. Set runs-on to [self-hosted, amd]
+# Cross-compilation: HIP/clang++ can target any gfx* architecture offline,
+# so no AMD GPU is required on the runner — the self-hosted-gpu runner works.
+# Requires: module load rocm/6.3 (available on the current runner).
 #
 # CMake usage: cmake -DPHIRST_BACKEND=HIP -DPHIRST_GPU_ARCH=gfx1100 ..
 # PHIRST_GPU_ARCH accepts gfx* strings; auto-detects via rocm_agent_enumerator if unset.
@@ -32,10 +30,8 @@ on:
 
 jobs:
   compile-check-hip:
-    name: "HIP ${{ matrix.arch }} (${{ matrix.name }}) — disabled: no runner"
-    # DISABLED — remove 'if: false' and update runs-on when self-hosted-amd is available
-    if: false
-    runs-on: [self-hosted, amd]
+    name: "HIP ${{ matrix.arch }} (${{ matrix.name }})"
+    runs-on: [self-hosted, gpu]
     strategy:
       fail-fast: false
       matrix:
@@ -50,9 +46,8 @@ jobs:
 
       - name: Configure (HIP, ${{ matrix.arch }})
         shell: bash -l {0}
-        # Load the ROCm module appropriate for the runner, e.g.:
-        #   module load rocm/6.x
         run: |
+          module load rocm/6.3
           cmake -S . -B build-compile-check-hip-${{ matrix.arch }} \
             -DPHIRST_BACKEND=HIP \
             -DPHIRST_GPU_ARCH=${{ matrix.arch }} \
@@ -60,7 +55,9 @@ jobs:
 
       - name: Build (HIP, ${{ matrix.arch }})
         shell: bash -l {0}
-        run: cmake --build build-compile-check-hip-${{ matrix.arch }} --parallel
+        run: |
+          module load rocm/6.3
+          cmake --build build-compile-check-hip-${{ matrix.arch }} --parallel
 
       - name: Cleanup
         if: always()

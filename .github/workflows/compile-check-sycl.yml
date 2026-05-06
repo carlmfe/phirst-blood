@@ -127,38 +127,32 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Intel — SYCL/Intel backend
-  # DISABLED: requires self-hosted-intel runner + Intel oneAPI DPC++
-  # See deploy/architectures.yml for full architecture list and requirements.
-  # To enable: add a runner with label 'self-hosted-intel', then replace
-  # 'if: false' with the runner label.
+  # Uses JIT compilation (-fsycl only); no Intel GPU required to compile.
+  # Requires: module load oneapi/2025.3 (available on the self-hosted-gpu runner).
+  # Note: AOT compilation (spir64_gen) needs CMakeLists.txt Intel AOT flags
+  # added first (C++ Development task). JIT covers all Intel GPU targets at runtime.
   # ---------------------------------------------------------------------------
   compile-check-sycl-intel:
-    name: "SYCL/Intel ${{ matrix.arch }} (disabled — no runner)"
+    name: "SYCL/Intel JIT"
     runs-on: [self-hosted, gpu]
-    if: false   # Remove when self-hosted-intel runner is available
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { arch: "spir64_gen", name: "Intel Data Center GPU Max (Ponte Vecchio)" }
-          - { arch: "spir64_gen", name: "Intel Arc A770 (Alchemist)" }
-
     steps:
       - uses: actions/checkout@v4
 
-      # TODO: replace with Intel oneAPI module load
-      - name: Configure (SYCL/Intel, ${{ matrix.arch }})
+      - name: Configure (SYCL/Intel, JIT)
         shell: bash -l {0}
         run: |
+          module load oneapi/2025.3
           cmake -S . -B build-compile-check-sycl-intel \
             -DPHIRST_BACKEND=SYCL \
             -DSYCL_BACKEND=INTEL \
             -DCMAKE_CXX_COMPILER=icpx \
             -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build (SYCL/Intel)
+      - name: Build (SYCL/Intel, JIT)
         shell: bash -l {0}
-        run: cmake --build build-compile-check-sycl-intel --parallel
+        run: |
+          module load oneapi/2025.3
+          cmake --build build-compile-check-sycl-intel --parallel
 
       - name: Cleanup
         if: always()
