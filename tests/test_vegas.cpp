@@ -162,8 +162,15 @@ TEST(VegasGrid, AdaptUniformWeightsPreservesGrid) {
 // NOTE: RamboDietAlgorithm<3> has nRandomNumbers=5 which is ≤ MaxDim=10.
 //       (Standard RamboAlgorithm<N> with N≥3 has 4*N≥12 > MaxDim=10 and would
 //       overflow the stack-allocated x[] / bins[] arrays in VegasWorkFunctor.)
+//
+// SERIAL-ONLY: GridAllocator uses std::vector (host memory) and calls the
+// initialiser functor directly from host code. On GPU backends, grid_stride_reduce
+// would launch a kernel that dereferences those host pointers — undefined behaviour.
+// The GPU path for VegasWorkFunctor is exercised by VegasIntegration.* tests, which
+// go through runVegas() and properly allocate DeviceBuffer (device pointers).
 // =============================================================================
 
+#if defined(PHIRST_BACKEND_SERIAL)
 TEST(VegasWorkFunctor, AccumulatesFiniteValues) {
     constexpr int NP = 3;
     using DietGen = PhaseSpaceGenerator<NP, RamboDietAlgorithm<NP>>;
@@ -201,6 +208,7 @@ TEST(VegasWorkFunctor, AccumulatesFiniteValues) {
     for (auto v : g.binAcc) totalBinAcc += v;
     EXPECT_GT(totalBinAcc, 0.0);
 }
+#endif // PHIRST_BACKEND_SERIAL
 
 // =============================================================================
 // RamboIntegrator::runVegas() end-to-end

@@ -151,8 +151,13 @@ TEST(MathFunctions, Constants) {
 // =============================================================================
 // Parallel infrastructure: DeviceBuffer, deep_copy, fill_buffer, atomic_add,
 // host_reduce, GridConfig
+//
+// DeviceBuffer on GPU backends (CUDA, HIP, SYCL, Kokkos) is true device memory
+// with no host-side operator[]. Tests that index DeviceBuffer directly or call
+// __device__-only functions (atomic_add) are guarded to serial only.
 // =============================================================================
 
+#if defined(PHIRST_BACKEND_SERIAL)
 TEST(Parallel, DeviceBufferAllocAndAccess) {
     phirst::DeviceBuffer<double> buf(5);
     EXPECT_EQ(buf.size(), 5);
@@ -181,6 +186,7 @@ TEST(Parallel, DeviceBufferMove) {
     EXPECT_EQ(b[1], 20);
     EXPECT_EQ(a.size(), 0);  // moved-from state
 }
+#endif // PHIRST_BACKEND_SERIAL
 
 TEST(Parallel, DeepCopyBothDirections) {
     const int64_t n = 4;
@@ -193,6 +199,7 @@ TEST(Parallel, DeepCopyBothDirections) {
     for (int64_t i = 0; i < n; ++i) EXPECT_DOUBLE_EQ(out[i], host[i]);
 }
 
+#if defined(PHIRST_BACKEND_SERIAL)
 TEST(Parallel, FillBuffer) {
     phirst::DeviceBuffer<double> buf(6);
     phirst::fill_buffer(buf, 3.14);
@@ -208,6 +215,7 @@ TEST(Parallel, AtomicAdd) {
     phirst::atomic_add(phirst::KernelAcc{}, &ival, 7);
     EXPECT_EQ(ival, 10);
 }
+#endif // PHIRST_BACKEND_SERIAL
 
 TEST(Parallel, HostReduce) {
     double data[5] = {1.0, 2.0, 3.0, 4.0, 5.0};

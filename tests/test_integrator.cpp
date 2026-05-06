@@ -17,10 +17,11 @@ TEST(IntegrationResult, ComputeStatistics) {
     EXPECT_DOUBLE_EQ(r.error, expectedError);
 }
 
-// Mock generator that returns logWeight = 0 and fills momenta with zeros
+// Mock generator that returns logWeight = 0 and fills momenta with zeros.
+// nRandomNumbers = 1 (not 0) to avoid zero-sized stack arrays in CUDA device code.
 template <int NP>
 struct MockGenerator {
-    static constexpr int nRandomNumbers = 0;
+    static constexpr int nRandomNumbers = 1;
 
     PHIRST_HOST_DEVICE auto operator()(double /*cmEnergy*/, uint64_t& /*rngState*/, double momenta[][4]) const -> double {
         for (int i = 0; i < NP; ++i) {
