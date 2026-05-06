@@ -232,7 +232,8 @@ public:
             // Phase 1: probe (small, with atomics) to gather bin statistics
             const uint64_t probeSeed = seed ^ (static_cast<uint64_t>(iter + 1) * 0xBF58476D1CE4E5B9ULL);
             ProbeF probeWork(generator, integrand_, cmEnergy, masses, probeSeed, grid);
-            double probeSum = 0.0, probeSum2 = 0.0;
+            double probeSum = 0.0;
+            double probeSum2 = 0.0;
             grid_stride_reduce(nProbePerIter, probeWork, probeSum, probeSum2);
 
             // Adapt the VEGAS grid and reset bin accumulators for the next probe
@@ -242,7 +243,8 @@ public:
             // Phase 2: integrate with the adapted grid, no bin updates (no GPU atomics)
             const uint64_t intSeed = seed + static_cast<uint64_t>(iter + 1) * 0x94D049BB133111EBULL;
             IntF intWork(generator, integrand_, cmEnergy, masses, intSeed, grid);
-            double iterSum = 0.0, iterSum2 = 0.0;
+            double iterSum = 0.0;
+            double iterSum2 = 0.0;
             grid_stride_reduce(nIntegratePerIter, intWork, iterSum, iterSum2);
 
             totalResult.sum  += iterSum;

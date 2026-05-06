@@ -24,16 +24,6 @@ struct VegasParams {
     double stopRelError = 0.0;    // If >0, stop when relative error <= this value
 };
 
-/** \brief VEGAS integration result. */
-struct VegasResult {
-    double integral = 0.0;        // Final integral estimate
-    double error = 0.0;           // Statistical error
-    double chiSquared = 0.0;      // Chi-squared per DOF
-    int nIterations = 0;          // Iterations completed
-    std::vector<double> iterIntegrals;  // Per-iteration results
-    std::vector<double> iterErrors;     // Per-iteration errors
-};
-
 /** \brief C-style struct holding pointers to VEGAS grid data on the device. */
 struct VegasGrid {
     double* xi;       // Grid boundaries [nDim * (nBins + 1)]
