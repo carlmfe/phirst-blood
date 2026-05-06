@@ -14,31 +14,24 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Configure (CUDA backend)
+      - name: Configure (CUDA backend + tests)
         shell: bash -l {0}
         run: |
           module load cuda/13.0
           cmake -S . -B build-cuda \
             -DPHIRST_BACKEND=CUDA \
+            -DPHIRST_BUILD_TESTS=ON \
             -DPHIRST_GPU_ARCH=89 \
             -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build examples
+      - name: Build
         shell: bash -l {0}
         run: |
           module load cuda/13.0
           cmake --build build-cuda --parallel
 
-      - name: Configure tests
-        run: |
-          cmake -S tests -B build-cuda-tests \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_SOURCE_DIR=${{ github.workspace }}
-
-      - name: Build tests
-        run: cmake --build build-cuda-tests --parallel
-
       - name: Run tests
+        shell: bash -l {0}
         run: |
-          cd build-cuda-tests
-          ctest --output-on-failure
+          module load cuda/13.0
+          ctest --test-dir build-cuda --output-on-failure

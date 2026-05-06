@@ -200,6 +200,12 @@ endif()
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Test suite (disabled by default; enable with -DPHIRST_BUILD_TESTS=ON)
+option(PHIRST_BUILD_TESTS "Build the GoogleTest suite alongside the examples" OFF)
+if(PHIRST_BUILD_TESTS)
+    enable_testing()
+endif()
+
 # Source files
 set(SOURCES_DY examples/drell_yan.cpp)
 set(SOURCES_EGG examples/eggholder.cpp)
@@ -222,7 +228,11 @@ if(PHIRST_BACKEND STREQUAL "SERIAL")
     add_executable(${EXENAME_EGG} ${SOURCES_EGG})
     target_include_directories(${EXENAME_EGG} PRIVATE include)
     target_compile_definitions(${EXENAME_EGG} PRIVATE PHIRST_BACKEND_SERIAL)
-    
+
+    if(PHIRST_BUILD_TESTS)
+        add_subdirectory(tests)
+    endif()
+
 elseif(PHIRST_BACKEND STREQUAL "CUDA")
     # ---------------------------
     # CUDA Backend
@@ -268,7 +278,11 @@ elseif(PHIRST_BACKEND STREQUAL "CUDA")
     target_compile_options(${EXENAME_EGG} PRIVATE
         $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>
     )
-    
+
+    if(PHIRST_BUILD_TESTS)
+        add_subdirectory(tests)
+    endif()
+
 elseif(PHIRST_BACKEND STREQUAL "KOKKOS")
     # ---------------------------
     # Kokkos Backend
@@ -287,7 +301,11 @@ elseif(PHIRST_BACKEND STREQUAL "KOKKOS")
     target_include_directories(${EXENAME_EGG} PRIVATE include)
     target_compile_definitions(${EXENAME_EGG} PRIVATE PHIRST_BACKEND_KOKKOS)
     target_link_libraries(${EXENAME_EGG} PRIVATE Kokkos::kokkos)
-    
+
+    if(PHIRST_BUILD_TESTS)
+        add_subdirectory(tests)
+    endif()
+
 elseif(PHIRST_BACKEND STREQUAL "ALPAKA")
     # ---------------------------
     # Alpaka Backend
@@ -330,7 +348,14 @@ elseif(PHIRST_BACKEND STREQUAL "ALPAKA")
     target_include_directories(${EXENAME_EGG} PRIVATE include)
     target_compile_definitions(${EXENAME_EGG} PRIVATE PHIRST_BACKEND_ALPAKA)
     target_link_libraries(${EXENAME_EGG} PRIVATE alpaka::alpaka)
-    
+
+    if(PHIRST_BUILD_TESTS)
+        # Alpaka GPU test integration is deferred (alpaka_add_executable is not
+        # compatible with a plain add_executable in tests/CMakeLists.txt).
+        # Tests will compile and run with the SERIAL backend as a fallback.
+        add_subdirectory(tests)
+    endif()
+
 elseif(PHIRST_BACKEND STREQUAL "SYCL")
     # ---------------------------
     # SYCL Backend
@@ -388,7 +413,11 @@ elseif(PHIRST_BACKEND STREQUAL "SYCL")
         target_compile_options(${EXENAME_EGG} PRIVATE -fsycl)
         target_link_options(${EXENAME_EGG} PRIVATE -fsycl)
     endif()
-    
+
+    if(PHIRST_BUILD_TESTS)
+        add_subdirectory(tests)
+    endif()
+
 elseif(PHIRST_BACKEND STREQUAL "HIP")
     # ---------------------------
     # HIP Backend (AMD GPUs)
@@ -438,6 +467,12 @@ elseif(PHIRST_BACKEND STREQUAL "HIP")
     add_executable(${EXENAME_EGG} ${SOURCES_EGG})
     target_include_directories(${EXENAME_EGG} PRIVATE include)
     target_compile_definitions(${EXENAME_EGG} PRIVATE PHIRST_BACKEND_HIP)
+
+    if(PHIRST_BUILD_TESTS)
+        # HIP language is enabled above; tests/CMakeLists.txt will compile
+        # test sources as HIP via set_source_files_properties.
+        add_subdirectory(tests)
+    endif()
 
 else()
     message(FATAL_ERROR "Unknown backend: ${PHIRST_BACKEND}. Use SERIAL, CUDA, KOKKOS, ALPAKA, SYCL, or HIP.")

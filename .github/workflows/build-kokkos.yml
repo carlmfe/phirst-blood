@@ -14,7 +14,7 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Configure (Kokkos backend)
+      - name: Configure (Kokkos backend + tests)
         # Note: kokkos/5.0.1 is built with CUDA; the runner must provide GCC ≤ 12
         # (or the module must set CC/CXX to a compatible compiler).
         shell: bash -l {0}
@@ -22,24 +22,17 @@ jobs:
           module load kokkos/5.0.1
           cmake -S . -B build-kokkos \
             -DPHIRST_BACKEND=KOKKOS \
+            -DPHIRST_BUILD_TESTS=ON \
             -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build examples
+      - name: Build
         shell: bash -l {0}
         run: |
           module load kokkos/5.0.1
           cmake --build build-kokkos --parallel
 
-      - name: Configure tests
-        run: |
-          cmake -S tests -B build-kokkos-tests \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_SOURCE_DIR=${{ github.workspace }}
-
-      - name: Build tests
-        run: cmake --build build-kokkos-tests --parallel
-
       - name: Run tests
+        shell: bash -l {0}
         run: |
-          cd build-kokkos-tests
-          ctest --output-on-failure
+          module load kokkos/5.0.1
+          ctest --test-dir build-kokkos --output-on-failure
