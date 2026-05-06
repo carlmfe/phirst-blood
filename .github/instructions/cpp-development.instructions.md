@@ -42,7 +42,7 @@ the user which agent to invoke with a ready-to-use prompt.
 ```
 include/phirst/
 ├── phirst.hpp              # Convenience include (pulls in everything below)
-├── phase_space.hpp         # RamboAlgorithm<N>, PhaseSpaceGenerator<N, Algo>
+├── phase_space.hpp         # RamboAlgorithm<N>, RamboDietAlgorithm<N>, PhaseSpaceGenerator<N, Algo>
 ├── integrator.hpp          # MCWorkFunctor, RamboIntegrator<Integrand, N, Algo>
 ├── integrands.hpp          # EggholderIntegrand, ConstantIntegrand, DrellYanIntegrand, ...
 ├── vegas.hpp               # VegasGrid, VegasParams, VegasWorkFunctor, ...
@@ -53,6 +53,7 @@ include/phirst/
     ├── parallel.hpp        # DeviceBuffer<T>, grid_stride_reduce, fence, deep_copy, ...
     ├── parallel_serial.hpp # Serial CPU implementation of parallel.hpp API
     ├── parallel_cuda.hpp   # CUDA implementation
+    ├── parallel_hip.hpp    # HIP/ROCm implementation
     ├── parallel_kokkos.hpp # Kokkos implementation
     ├── parallel_alpaka.hpp # Alpaka 2.0.0 implementation
     └── parallel_sycl.hpp   # SYCL implementation
@@ -76,6 +77,7 @@ Exactly one of these preprocessor defines is set at compile time:
 ```
 PHIRST_BACKEND_SERIAL
 PHIRST_BACKEND_CUDA
+PHIRST_BACKEND_HIP
 PHIRST_BACKEND_KOKKOS
 PHIRST_BACKEND_ALPAKA
 PHIRST_BACKEND_SYCL
@@ -83,11 +85,12 @@ PHIRST_BACKEND_SYCL
 
 `include/phirst/backend/config.hpp` reads these and defines the portable macros:
 
-| Macro | CUDA | Kokkos | Alpaka | SYCL | Serial |
-|-------|------|--------|--------|------|--------|
-| `PHIRST_HOST_DEVICE` | `__host__ __device__` | `KOKKOS_FUNCTION` | `ALPAKA_FN_HOST_ACC` | *(empty)* | *(empty)* |
-| `PHIRST_DEVICE` | `__device__` | `KOKKOS_FUNCTION` | `ALPAKA_FN_ACC` | *(empty)* | *(empty)* |
-| `PHIRST_INLINE` | `__device__ __host__ inline` | `KOKKOS_INLINE_FUNCTION` | `ALPAKA_FN_HOST_ACC inline` | `inline` | `inline` |
+| Macro | CUDA | HIP | Kokkos | Alpaka | SYCL | Serial |
+|-------|------|-----|--------|--------|------|--------|
+| `PHIRST_HOST_DEVICE` | `__host__ __device__` | `__host__ __device__` | `KOKKOS_FUNCTION` | `ALPAKA_FN_HOST_ACC` | *(empty)* | *(empty)* |
+| `PHIRST_DEVICE` | `__device__` | `__device__` | `KOKKOS_FUNCTION` | `ALPAKA_FN_ACC` | *(empty)* | *(empty)* |
+| `PHIRST_INLINE` | `__device__ __host__ inline` | `__device__ __host__ inline` | `KOKKOS_INLINE_FUNCTION` | `ALPAKA_FN_HOST_ACC inline` | `inline` | `inline` |
+| `PHIRST_FORCEINLINE` | `__device__ __host__ __forceinline__` | `__device__ __host__ __forceinline__` | `KOKKOS_FORCEINLINE_FUNCTION` | `ALPAKA_FN_HOST_ACC inline` | `inline` | `inline` |
 
 **Rule**: all functions that run in device kernels must be decorated with `PHIRST_HOST_DEVICE`
 or `PHIRST_INLINE`. Never use bare `__device__` or `KOKKOS_FUNCTION` directly in library code.
@@ -150,37 +153,63 @@ or the Kokkos/Alpaka execution space type). For portability, treat it as opaque.
 
 ## Key Classes
 
-### `RamboAlgorithm<N>` (`phase_space.hpp`)
+### Algorithms (`phase_space.hpp`)
 
-The RAMBO algorithm for N massless (and massive) final-state particles.
+Both algorithms follow the same interface pattern: `initializeMasses(masses)` then two
+`generate()` overloads — one taking a pre-generated `const double r[]`, one advancing a
+`uint64_t& rngState` directly.
 
-```cpp
-template <int nParticles>
-struct RamboAlgorithm {
-    static constexpr int nRandomNumbers = 4 * nParticles;
+| Algorithm | `nRandomNumbers` | Default? |
+|-----------|-----------------|----------|
+| `RamboAlgorithm<N>` | `4*N` | No |
+| `RamboDietAlgorithm<N>` | `3*N - 4` | **Yes** |
 
-    PHIRST_HOST_DEVICE
-    double operator()(double cmEnergy, const double* masses,
-                      const double r[nRandomNumbers],
-                      double momenta[nParticles][4]) const;
-};
-```
+`RamboDietAlgorithm` is the default for `PhaseSpaceGenerator` and the `DefaultPhaseSpaceGenerator`
+/ `PhaseSpaceGenerator2D` / `PhaseSpaceGenerator3D` aliases.
 
-`r[]` is a flat array of pre-generated uniform random numbers in `[0, 1)`.
-Returns `logWeight = log(phase space weight)`.
+**Boost convention in `RamboDietAlgorithm`**: particles are generated in the rest frame of each
+intermediate 4-momentum `QPrev`; the boost back to lab uses `-QPrev[1:3]/QPrev[0]` (negated).
+Do NOT revert the sign — see Critical Pitfalls.
 
 ### `PhaseSpaceGenerator<N, Algorithm>` (`phase_space.hpp`)
 
-Thin wrapper that stores `masses` and provides a callable interface:
+Owns an `Algorithm` instance (constructed from `const double* masses`). Exposes two
+`operator()` overloads that forward to `algorithm.generate()`: one taking `uint64_t& rngState`,
+one taking a `const double* r` array. `static constexpr int nRandomNumbers` mirrors the
+algorithm's value.
+
+### `MCWorkFunctor<Generator, Integrand, N>` (`integrator.hpp`)
+
+Encapsulates per-event work: seed RNG → generate random numbers → generate phase space →
+evaluate integrand → accumulate. This is the struct passed to `grid_stride_reduce`.
 
 ```cpp
-template <int nParticles, typename Algorithm = RamboAlgorithm<nParticles>>
-struct PhaseSpaceGenerator {
-    static constexpr int nRandomNumbers = Algorithm::nRandomNumbers;
-    const double* masses;
+template <typename Generator, typename Integrand, int NumParticles>
+struct MCWorkFunctor {
+    Generator generator;
+    Integrand integrand;
+    double cmEnergy;
+    uint64_t baseSeed;
+    double masses[NumParticles];   // Fixed-size array: device-safe
 
+    template <typename Acc>
     PHIRST_HOST_DEVICE
-    double operator()(double cmEnergy, const double r[], double momenta[][4]) const;
+    void operator()(const Acc&, int64_t workIdx, double& sum, double& sum2) const;
+};
+```
+
+### `RamboIntegrator<Integrand, N, Algorithm>` (`integrator.hpp`)
+
+```cpp
+template <typename Integrand, int NumParticles,
+          typename Algorithm = RamboAlgorithm<NumParticles>>
+class RamboIntegrator {
+public:
+    RamboIntegrator(int64_t nEvents, const Integrand& integrand);
+    void run(double cmEnergy, const double* masses,
+             double& mean, double& error, uint64_t seed = 5489ULL);
+    void runVegas(double cmEnergy, const double* masses,
+                  double& mean, double& error, uint64_t seed = 5489ULL);
 };
 ```
 
@@ -252,20 +281,10 @@ struct MyIntegrand {
 
 ## Adding a New Phase Space Algorithm
 
-Implement the same interface as `RamboAlgorithm`:
+Follow the same interface as `RamboDietAlgorithm`: declare `nRandomNumbers`, implement
+`initializeMasses(const double* masses)`, and provide two `generate()` overloads
+(one `const double r[]`, one `uint64_t& rngState`). Then use it via:
 
-```cpp
-template <int nParticles>
-struct MyAlgorithm {
-    static constexpr int nRandomNumbers = /* how many uniform randoms you need */;
-
-    PHIRST_HOST_DEVICE
-    double operator()(double cmEnergy, const double* masses,
-                      const double r[], double momenta[nParticles][4]) const;
-};
-```
-
-Then use it via:
 ```cpp
 RamboIntegrator<MyIntegrand, 3, MyAlgorithm<3>> integrator(nEvents, integrand);
 ```
@@ -288,7 +307,7 @@ To add backend `FOO`:
    - `grid_stride_reduce(nWork, functor, sum, sum2)`
    - All inside `namespace phirst::foo_impl`
 4. **Include and alias** in `parallel.hpp`: add `#elif defined(PHIRST_BACKEND_FOO)` blocks
-5. **Update `CMakeLists.txt`**: add `elseif(PHIRST_BACKEND STREQUAL "FOO")` section
+5. **Update `CMakeLists.txt`**: add `elseif(PHIRST_BACKEND STREQUAL "FOO")` section — **Deployment Agent task**
 6. **Update `math.hpp`** if FOO requires a different math library
 7. **Add a CI workflow**: `.github/workflows/build-foo.yml`
 
@@ -312,7 +331,12 @@ numerical consistency.
 
 ### Enforced Tools
 - **clang-format**: run `clang-format -i` on all modified `.hpp`/`.cpp` files before commit
-- **clang-tidy**: run with the project's `.clang-tidy` config; fix all warnings
+- **clang-tidy**: run with the project's `.clang-tidy` config:
+  ```bash
+  clang-tidy -p build-serial examples/drell_yan.cpp examples/eggholder.cpp
+  ```
+  The serial build's `compile_commands.json` is the reference — GPU backends require
+  framework headers that clang-tidy cannot parse. Fix all warnings before committing.
 
 ### Naming Conventions (from existing code)
 - Types / classes: `PascalCase` (`RamboIntegrator`, `MCWorkFunctor`)
@@ -335,6 +359,9 @@ numerical consistency.
 - No exceptions in device code
 - Fixed-size arrays for device-side storage (e.g., `double masses[NumParticles]`)
 - All data passed to a kernel functor must be trivially copyable
+- **Do not use `<numbers>` or `std::numbers::pi` etc.** — these headers are unavailable
+  in GPU device code. Use `phirst::math::pi`, `phirst::math::e`, etc. instead.
+  The `modernize-use-std-numbers` clang-tidy check is suppressed for this reason.
 
 ---
 
@@ -348,6 +375,8 @@ numerical consistency.
 | Wrong results on SYCL | Missing `PHIRST_BACKEND_SYCL` define | Verify `-DPHIRST_BACKEND=SYCL` in CMake |
 | Kokkos CUDA arch mismatch | Kokkos built for different arch | Reinstall Kokkos for target arch |
 | `DeviceBuffer` copy semantics | Copying a `DeviceBuffer` copies the pointer, not data | Always pass by reference or via `deep_copy` |
+| `RamboDietAlgorithm` 3-momentum non-conservation for N≥3 | Boost vector not negated — boosts into rest frame instead of back to lab | `boostVec[k] = -QPrev[k+1]/QPrev[0]` (already fixed); never revert the sign |
+| `std::numbers` compile error in device code | `<numbers>` unavailable in GPU TUs | Use `phirst::math::pi` / `phirst::math::e` etc. |
 
 ---
 
