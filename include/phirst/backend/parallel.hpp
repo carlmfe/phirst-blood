@@ -80,6 +80,8 @@ T host_reduce(const T* data, int64_t n) {
     #include "parallel_alpaka.hpp"
 #elif defined(PHIRST_BACKEND_CUDA)
     #include "parallel_cuda.hpp"
+#elif defined(PHIRST_BACKEND_HIP)
+    #include "parallel_hip.hpp"
 #endif
 
 namespace phirst {
@@ -92,6 +94,8 @@ namespace phirst {
     namespace backend_impl = serial_impl;
 #elif defined(PHIRST_BACKEND_CUDA)
     namespace backend_impl = cuda_impl;
+#elif defined(PHIRST_BACKEND_HIP)
+    namespace backend_impl = hip_impl;
 #elif defined(PHIRST_BACKEND_KOKKOS)
     namespace backend_impl = kokkos_impl;
 #elif defined(PHIRST_BACKEND_SYCL)

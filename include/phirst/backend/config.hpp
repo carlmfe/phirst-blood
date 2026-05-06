@@ -9,6 +9,7 @@
  * This header provides a unified abstraction layer for multiple compute backends:
  * - SERIAL (default): Standard C++ with no parallelization
  * - CUDA: NVIDIA GPU via CUDA
+ * - HIP: AMD GPU via HIP/ROCm
  * - KOKKOS: Kokkos performance portability library
  * - ALPAKA: Alpaka abstraction library
  * - SYCL: SYCL/DPC++ (Intel, CUDA, or HIP backend)
@@ -17,6 +18,7 @@
  *   Define exactly one of the following before including this header:
  *   - PHIRST_BACKEND_SERIAL (or none defined)
  *   - PHIRST_BACKEND_CUDA
+ *   - PHIRST_BACKEND_HIP
  *   - PHIRST_BACKEND_KOKKOS
  *   - PHIRST_BACKEND_ALPAKA
  *   - PHIRST_BACKEND_SYCL
@@ -39,9 +41,17 @@
     #define PHIRST_BACKEND_COUNT 1
 #endif
 
+#if defined(PHIRST_BACKEND_HIP)
+    #if PHIRST_BACKEND_COUNT > 0
+        #error "Multiple PHIRST backends defined. Define only one of: PHIRST_BACKEND_SERIAL, PHIRST_BACKEND_CUDA, PHIRST_BACKEND_HIP, PHIRST_BACKEND_KOKKOS, PHIRST_BACKEND_ALPAKA, PHIRST_BACKEND_SYCL"
+    #endif
+    #undef PHIRST_BACKEND_COUNT
+    #define PHIRST_BACKEND_COUNT 1
+#endif
+
 #if defined(PHIRST_BACKEND_KOKKOS)
     #if PHIRST_BACKEND_COUNT > 0
-        #error "Multiple PHIRST backends defined. Define only one of: PHIRST_BACKEND_SERIAL, PHIRST_BACKEND_CUDA, PHIRST_BACKEND_KOKKOS, PHIRST_BACKEND_ALPAKA, PHIRST_BACKEND_SYCL"
+        #error "Multiple PHIRST backends defined. Define only one of: PHIRST_BACKEND_SERIAL, PHIRST_BACKEND_CUDA, PHIRST_BACKEND_HIP, PHIRST_BACKEND_KOKKOS, PHIRST_BACKEND_ALPAKA, PHIRST_BACKEND_SYCL"
     #endif
     #undef PHIRST_BACKEND_COUNT
     #define PHIRST_BACKEND_COUNT 1
@@ -49,7 +59,7 @@
 
 #if defined(PHIRST_BACKEND_ALPAKA)
     #if PHIRST_BACKEND_COUNT > 0
-        #error "Multiple PHIRST backends defined. Define only one of: PHIRST_BACKEND_SERIAL, PHIRST_BACKEND_CUDA, PHIRST_BACKEND_KOKKOS, PHIRST_BACKEND_ALPAKA, PHIRST_BACKEND_SYCL"
+        #error "Multiple PHIRST backends defined. Define only one of: PHIRST_BACKEND_SERIAL, PHIRST_BACKEND_CUDA, PHIRST_BACKEND_HIP, PHIRST_BACKEND_KOKKOS, PHIRST_BACKEND_ALPAKA, PHIRST_BACKEND_SYCL"
     #endif
     #undef PHIRST_BACKEND_COUNT
     #define PHIRST_BACKEND_COUNT 1
@@ -57,14 +67,14 @@
 
 #if defined(PHIRST_BACKEND_SYCL)
     #if PHIRST_BACKEND_COUNT > 0
-        #error "Multiple PHIRST backends defined. Define only one of: PHIRST_BACKEND_SERIAL,PHIRST_BACKEND_CUDA,PHIRSTO_BACKEND_KOKKOS, PHIRST_BACKEND_ALPAKA, PHIRST_BACKEND_SYCL"
+        #error "Multiple PHIRST backends defined. Define only one of: PHIRST_BACKEND_SERIAL, PHIRST_BACKEND_CUDA, PHIRST_BACKEND_HIP, PHIRST_BACKEND_KOKKOS, PHIRST_BACKEND_ALPAKA, PHIRST_BACKEND_SYCL"
     #endif
     #undef PHIRST_BACKEND_COUNT
     #define PHIRST_BACKEND_COUNT 1
 #endif
 
 // Default to SERIAL if no backend specified
-#if !defined(PHIRST_BACKEND_CUDA) && !defined(PHIRST_BACKEND_KOKKOS) && \
+#if !defined(PHIRST_BACKEND_CUDA) && !defined(PHIRST_BACKEND_HIP) && !defined(PHIRST_BACKEND_KOKKOS) && \
     !defined(PHIRST_BACKEND_ALPAKA) && !defined(PHIRST_BACKEND_SYCL) && \
     !defined(PHIRST_BACKEND_SERIAL)
     #define PHIRST_BACKEND_SERIAL
@@ -76,6 +86,10 @@
 
 #if defined(PHIRST_BACKEND_CUDA)
     #include <cuda_runtime.h>
+    #include <cmath>
+    #include <cstdint>
+#elif defined(PHIRST_BACKEND_HIP)
+    #include <hip/hip_runtime.h>
     #include <cmath>
     #include <cstdint>
 #elif defined(PHIRST_BACKEND_KOKKOS)
@@ -109,6 +123,13 @@
  */
 
 #if defined(PHIRST_BACKEND_CUDA)
+    #define PHIRST_DEVICE __device__
+    #define PHIRST_HOST __host__
+    #define PHIRST_HOST_DEVICE __host__ __device__
+    #define PHIRST_INLINE __device__ __host__ inline
+    #define PHIRST_FORCEINLINE __device__ __host__ __forceinline__
+
+#elif defined(PHIRST_BACKEND_HIP)
     #define PHIRST_DEVICE __device__
     #define PHIRST_HOST __host__
     #define PHIRST_HOST_DEVICE __host__ __device__
@@ -154,6 +175,8 @@ namespace phirst {
 
 #if defined(PHIRST_BACKEND_CUDA)
     inline constexpr const char* BACKEND_NAME = "CUDA";
+#elif defined(PHIRST_BACKEND_HIP)
+    inline constexpr const char* BACKEND_NAME = "HIP";
 #elif defined(PHIRST_BACKEND_KOKKOS)
     inline constexpr const char* BACKEND_NAME = "Kokkos";
 #elif defined(PHIRST_BACKEND_ALPAKA)
