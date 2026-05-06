@@ -29,7 +29,7 @@ jobs:
       fail-fast: false
       matrix:
         arch:
-          - "70"   # NVIDIA V100 (Volta)
+          # sm_70 (Volta) was dropped in CUDA 13.0 — see deploy/architectures.yml
           - "75"   # NVIDIA T4 (Turing)
           - "80"   # NVIDIA A100 (Ampere)
           - "86"   # NVIDIA RTX 30xx (Ampere desktop)

@@ -35,14 +35,15 @@ architectures:
     family: nvidia
     class: hpc
     runner_requirement: self-hosted-gpu
+    note: >
+      CUDA 13.0 dropped sm_70 support. Compile checks for cuda and alpaka backends
+      require CUDA ≤ 12. The sycl/clang backend may still support sm_70 in principle
+      but is omitted from CI to keep the architecture matrix consistent.
     backends:
-      cuda:
-        arch: "70"
-      alpaka:
-        arch: "70"
       sycl:
         backend: CUDA
         arch: "sm_70"
+        note: "Disabled in CI — CUDA 13.0 dropped sm_70; re-enable with CUDA ≤ 12 runner."
       kokkos:
         note: >
           Arch is baked into the Kokkos module installation.

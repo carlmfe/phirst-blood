@@ -51,7 +51,8 @@ jobs:
       fail-fast: false
       matrix:
         arch:
-          - "sm_70"   # NVIDIA V100 (Volta)
+          # sm_70 (Volta) was dropped in CUDA 13.0 — see deploy/architectures.yml
+          # SYCL/clang may still support it but we align with the CUDA matrix.
           - "sm_75"   # NVIDIA T4 (Turing)
           - "sm_80"   # NVIDIA A100 (Ampere)
           - "sm_86"   # NVIDIA RTX 30xx (Ampere desktop)
@@ -141,7 +142,7 @@ jobs:
       - name: Configure (SYCL/Intel, JIT)
         shell: bash -l {0}
         run: |
-          module load oneapi/2025.3
+          module load oneapi/2026.0
           cmake -S . -B build-compile-check-sycl-intel \
             -DPHIRST_BACKEND=SYCL \
             -DSYCL_BACKEND=INTEL \
@@ -151,7 +152,7 @@ jobs:
       - name: Build (SYCL/Intel, JIT)
         shell: bash -l {0}
         run: |
-          module load oneapi/2025.3
+          module load oneapi/2026.0
           cmake --build build-compile-check-sycl-intel --parallel
 
       - name: Cleanup
