@@ -350,9 +350,6 @@ elseif(PHIRST_BACKEND STREQUAL "ALPAKA")
     target_link_libraries(${EXENAME_EGG} PRIVATE alpaka::alpaka)
 
     if(PHIRST_BUILD_TESTS)
-        # Alpaka GPU test integration is deferred (alpaka_add_executable is not
-        # compatible with a plain add_executable in tests/CMakeLists.txt).
-        # Tests will compile and run with the SERIAL backend as a fallback.
         add_subdirectory(tests)
     endif()
 

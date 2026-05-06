@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "test_utils.hpp"
 
 #include "phirst/phase_space.hpp"
 #include "phirst/backend/random.hpp"
@@ -53,7 +54,7 @@ TEST(PhaseSpaceRambo, TwoParticleMasslessConservation) {
     double mom[NP][4];
     double logW = algo.generate(cmEnergy, rng, mom);
 
-    EXPECT_TRUE(std::isfinite(logW));
+    EXPECT_TRUE(isfinite(logW));
     for (int i = 0; i < NP; ++i) EXPECT_GT(mom[i][0], 0.0);
     checkMomentumConservation<NP>(mom, cmEnergy);
 }
@@ -68,7 +69,7 @@ TEST(PhaseSpaceRambo, ThreeParticleMasslessConservation) {
     double mom[NP][4];
     double logW = algo.generate(cmEnergy, rng, mom);
 
-    EXPECT_TRUE(std::isfinite(logW));
+    EXPECT_TRUE(isfinite(logW));
     for (int i = 0; i < NP; ++i) EXPECT_GT(mom[i][0], 0.0);
     checkMomentumConservation<NP>(mom, cmEnergy);
 }
@@ -83,7 +84,7 @@ TEST(PhaseSpaceRambo, FourParticleMasslessConservation) {
     double mom[NP][4];
     double logW = algo.generate(cmEnergy, rng, mom);
 
-    EXPECT_TRUE(std::isfinite(logW));
+    EXPECT_TRUE(isfinite(logW));
     for (int i = 0; i < NP; ++i) EXPECT_GT(mom[i][0], 0.0);
     checkMomentumConservation<NP>(mom, cmEnergy);
 }
@@ -102,7 +103,7 @@ TEST(PhaseSpaceRambo, TwoParticleMassiveConservationAndOnShell) {
     double mom[NP][4];
     double logW = algo.generate(cmEnergy, rng, mom);
 
-    EXPECT_TRUE(std::isfinite(logW));
+    EXPECT_TRUE(isfinite(logW));
     checkMomentumConservation<NP>(mom, cmEnergy, 1e-8);
     checkOnShell<NP>(mom, masses, 1e-8);
 }
@@ -117,7 +118,22 @@ TEST(PhaseSpaceRambo, ThreeParticleMassiveConservationAndOnShell) {
     double mom[NP][4];
     double logW = algo.generate(cmEnergy, rng, mom);
 
-    EXPECT_TRUE(std::isfinite(logW));
+    EXPECT_TRUE(isfinite(logW));
+    checkMomentumConservation<NP>(mom, cmEnergy, 1e-7);
+    checkOnShell<NP>(mom, masses, 1e-7);
+}
+
+TEST(PhaseSpaceRambo, FourParticleMassiveConservationAndOnShell) {
+    constexpr int NP = 4;
+    double masses[NP] = {1.0, 2.0, 3.0, 4.0};
+    double cmEnergy = 30.0;          // well above threshold (10.0 GeV)
+    RamboAlgorithm<NP> algo(masses);
+
+    uint64_t rng = initRngState(5489ULL, 5);
+    double mom[NP][4];
+    double logW = algo.generate(cmEnergy, rng, mom);
+
+    EXPECT_TRUE(isfinite(logW));
     checkMomentumConservation<NP>(mom, cmEnergy, 1e-7);
     checkOnShell<NP>(mom, masses, 1e-7);
 }
@@ -147,7 +163,7 @@ TEST(PhaseSpaceDiet, TwoParticleMasslessConservation) {
     double mom[NP][4];
     double logW = algo.generate(cmEnergy, rng, mom);
 
-    EXPECT_TRUE(std::isfinite(logW));
+    EXPECT_TRUE(isfinite(logW));
     for (int i = 0; i < NP; ++i) EXPECT_GT(mom[i][0], 0.0);
     checkMomentumConservation<NP>(mom, cmEnergy);
 }
@@ -162,7 +178,7 @@ TEST(PhaseSpaceDiet, ThreeParticleMasslessConservation) {
     double mom[NP][4];
     double logW = algo.generate(cmEnergy, rng, mom);
 
-    EXPECT_TRUE(std::isfinite(logW));
+    EXPECT_TRUE(isfinite(logW));
     for (int i = 0; i < NP; ++i) EXPECT_GT(mom[i][0], 0.0);
     checkMomentumConservation<NP>(mom, cmEnergy);
 }
@@ -177,7 +193,7 @@ TEST(PhaseSpaceDiet, FourParticleMasslessConservation) {
     double mom[NP][4];
     double logW = algo.generate(cmEnergy, rng, mom);
 
-    EXPECT_TRUE(std::isfinite(logW));
+    EXPECT_TRUE(isfinite(logW));
     for (int i = 0; i < NP; ++i) EXPECT_GT(mom[i][0], 0.0);
     checkMomentumConservation<NP>(mom, cmEnergy);
 }
@@ -196,9 +212,39 @@ TEST(PhaseSpaceDiet, TwoParticleMassiveConservationAndOnShell) {
     double mom[NP][4];
     double logW = algo.generate(cmEnergy, rng, mom);
 
-    EXPECT_TRUE(std::isfinite(logW));
+    EXPECT_TRUE(isfinite(logW));
     checkMomentumConservation<NP>(mom, cmEnergy, 1e-8);
     checkOnShell<NP>(mom, masses, 1e-8);
+}
+
+TEST(PhaseSpaceDiet, ThreeParticleMassiveConservationAndOnShell) {
+    constexpr int NP = 3;
+    double masses[NP] = {1.0, 2.0, 3.0};
+    double cmEnergy = 20.0;          // well above threshold (6.0 GeV)
+    RamboDietAlgorithm<NP> algo(masses);
+
+    uint64_t rng = initRngState(5489ULL, 14);
+    double mom[NP][4];
+    double logW = algo.generate(cmEnergy, rng, mom);
+
+    EXPECT_TRUE(isfinite(logW));
+    checkMomentumConservation<NP>(mom, cmEnergy, 1e-8);
+    checkOnShell<NP>(mom, masses, 1e-8);
+}
+
+TEST(PhaseSpaceDiet, FourParticleMassiveConservationAndOnShell) {
+    constexpr int NP = 4;
+    double masses[NP] = {0.5, 1.0, 2.0, 3.0};
+    double cmEnergy = 30.0;          // well above threshold (6.5 GeV)
+    RamboDietAlgorithm<NP> algo(masses);
+
+    uint64_t rng = initRngState(5489ULL, 15);
+    double mom[NP][4];
+    double logW = algo.generate(cmEnergy, rng, mom);
+
+    EXPECT_TRUE(isfinite(logW));
+    checkMomentumConservation<NP>(mom, cmEnergy, 1e-7);
+    checkOnShell<NP>(mom, masses, 1e-7);
 }
 
 // =============================================================================
@@ -220,6 +266,6 @@ TEST(PhaseSpaceDiet, GeneratorWrapperInterface) {
     double mom[NP][4];
     double logW = gen(cmEnergy, rng, mom);
 
-    EXPECT_TRUE(std::isfinite(logW));
+    EXPECT_TRUE(isfinite(logW));
     for (int i = 0; i < NP; ++i) EXPECT_GT(mom[i][0], 0.0);
 }

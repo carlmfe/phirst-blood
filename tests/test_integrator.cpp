@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "test_utils.hpp"
 
 #include "phirst/phirst.hpp"
 #include "phirst/backend/parallel.hpp"
@@ -122,6 +123,6 @@ TEST(IntegrationResult, NegativeVarianceClamped) {
     r.sum2 = 4.5 - 1e-14;
     r.computeStatistics();
     // fabs(variance) prevents sqrt from receiving a negative argument
-    EXPECT_TRUE(std::isfinite(r.error));
+    EXPECT_TRUE(isfinite(r.error));
     EXPECT_GE(r.error, 0.0);
 }

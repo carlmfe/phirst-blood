@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "test_utils.hpp"
 
 #include "phirst/phirst.hpp"
 #include "phirst/phase_space.hpp"
@@ -53,7 +54,7 @@ TEST(Integrands, DrellYanAnalyticAndEvaluate) {
     HEPUtils::P4 k2 = HEPUtils::P4::mkXYZE(0.0, 0.0, -5.0, 5.0);
     HEPUtils::P4 mom[2] = {k1, k2};
     double val = dyn.evaluate(mom);
-    EXPECT_TRUE(std::isfinite(val));
+    EXPECT_TRUE(isfinite(val));
 }
 
 TEST(Integrands, EggholderWithRealisticMomenta) {
@@ -84,8 +85,8 @@ TEST(Integrands, EggholderWithRealisticMomenta) {
     double valA = e.evaluate(p4A);
     double valB = e.evaluate(p4B);
 
-    EXPECT_TRUE(std::isfinite(valA));
-    EXPECT_TRUE(std::isfinite(valB));
+    EXPECT_TRUE(isfinite(valA));
+    EXPECT_TRUE(isfinite(valB));
     // Two random phase-space points give different integrand values
     EXPECT_NE(valA, valB);
 }

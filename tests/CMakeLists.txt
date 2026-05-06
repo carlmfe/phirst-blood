@@ -26,14 +26,19 @@ set(TEST_SOURCES
     test_vegas.cpp
 )
 
-# CUDA and HIP require sources to be compiled by their respective compilers
-if(PHIRST_BACKEND STREQUAL "CUDA")
-    set_source_files_properties(${TEST_SOURCES} PROPERTIES LANGUAGE CUDA)
-elseif(PHIRST_BACKEND STREQUAL "HIP")
-    set_source_files_properties(${TEST_SOURCES} PROPERTIES LANGUAGE HIP)
+# Create test executable; Alpaka needs alpaka_add_executable for device compilation
+if(PHIRST_BACKEND STREQUAL "ALPAKA")
+    # alpaka_add_executable is available in this scope after find_package(alpaka) in parent
+    alpaka_add_executable(test_phirst ${TEST_SOURCES})
+else()
+    # CUDA and HIP require sources to be compiled by their respective compilers
+    if(PHIRST_BACKEND STREQUAL "CUDA")
+        set_source_files_properties(${TEST_SOURCES} PROPERTIES LANGUAGE CUDA)
+    elseif(PHIRST_BACKEND STREQUAL "HIP")
+        set_source_files_properties(${TEST_SOURCES} PROPERTIES LANGUAGE HIP)
+    endif()
+    add_executable(test_phirst ${TEST_SOURCES})
 endif()
-
-add_executable(test_phirst ${TEST_SOURCES})
 
 # Use CMAKE_CURRENT_SOURCE_DIR so paths are correct both as standalone project
 # (cmake -S tests) and as an add_subdirectory() call from the root.
@@ -74,11 +79,8 @@ elseif(PHIRST_BACKEND STREQUAL "HIP")
     target_compile_definitions(test_phirst PRIVATE PHIRST_BACKEND_HIP)
     # HIP language is already enabled in the parent scope via add_subdirectory()
 elseif(PHIRST_BACKEND STREQUAL "ALPAKA")
-    # Alpaka test integration is deferred: alpaka_add_executable() is only available
-    # after find_package(alpaka) in the parent scope and cannot be retrofitted onto a
-    # plain add_executable(). Tests fall back to SERIAL for now.
-    message(STATUS "Alpaka GPU test integration not yet supported — tests use SERIAL backend.")
-    target_compile_definitions(test_phirst PRIVATE PHIRST_BACKEND_SERIAL)
+    target_compile_definitions(test_phirst PRIVATE PHIRST_BACKEND_ALPAKA)
+    target_link_libraries(test_phirst PRIVATE alpaka::alpaka)
 else() # SERIAL (default) — also used for standalone cmake -S tests
     target_compile_definitions(test_phirst PRIVATE PHIRST_BACKEND_SERIAL)
 endif()

@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "test_utils.hpp"
 
 #include "phirst/phirst.hpp"
 #include "phirst/backend/parallel.hpp"
@@ -26,12 +27,47 @@ struct GridAllocator {
           binCounts(nd * nb, 0) {
         grid = { xi.data(), binAcc.data(), binCounts.data(), nd, nb, 1.5 };
     }
+
+    // Host-only uniform initializer — avoids KernelAcc construction.
+    // Equivalent to calling InitGridWorkFunctor on the host.
+    void initUniform() {
+        for (int d = 0; d < nDim; ++d) {
+            for (int b = 0; b <= nBins; ++b)
+                xi[d * (nBins + 1) + b] = double(b) / nBins;
+            for (int b = 0; b < nBins; ++b) {
+                binAcc   [d * nBins + b] = 0.0;
+                binCounts[d * nBins + b] = 0;
+            }
+        }
+    }
+};
+
+// Device-memory backed grid allocator — works on ALL backends.
+// Uses DeviceBuffer so all pointers are valid for device kernels.
+struct DeviceGridAllocator {
+    int nDim, nBins;
+    phirst::DeviceBuffer<double> xi;
+    phirst::DeviceBuffer<double> binAcc;
+    phirst::DeviceBuffer<int>    binCounts;
+    VegasGrid grid;
+
+    DeviceGridAllocator(int nd, int nb)
+        : nDim(nd), nBins(nb),
+          xi(nd * (nb + 1)),
+          binAcc(nd * nb),
+          binCounts(nd * nb) {
+        grid = { xi.data(), binAcc.data(), binCounts.data(), nd, nb, 1.5 };
+    }
 };
 
 // =============================================================================
 // InitGridWorkFunctor
 // =============================================================================
 
+// Alpaka's KernelAcc (AccGpuUniformCudaHipRt) is not host-constructible;
+// functor-via-KernelAcc tests are guarded. Device-side coverage is provided
+// by VegasGrid.AdaptGridFunctorOnDevice which uses run_single_thread.
+#if !defined(PHIRST_BACKEND_ALPAKA)
 TEST(VegasGrid, InitGridFunctorUniform) {
     GridAllocator g(2, 5);
     InitGridWorkFunctor init{g.grid};
@@ -49,6 +85,7 @@ TEST(VegasGrid, InitGridFunctorUniform) {
         }
     }
 }
+#endif // !PHIRST_BACKEND_ALPAKA
 
 // =============================================================================
 // VegasGrid::transform
@@ -57,8 +94,7 @@ TEST(VegasGrid, InitGridFunctorUniform) {
 TEST(VegasGrid, TransformUniformIsIdentity) {
     // On a uniform grid dx = 1/nBins, jacobian per dim = dx * nBins = 1.
     GridAllocator g(2, 10);
-    InitGridWorkFunctor init{g.grid};
-    init(KernelAcc{});
+    g.initUniform();
 
     double u[2]    = {0.35, 0.72};
     double x[2]    = {};
@@ -74,8 +110,7 @@ TEST(VegasGrid, TransformBinAssignmentCorrect) {
     // 1D grid with 4 bins. u=0.6 → pos=2.4 → bin=2.
     // xi=[0, 0.25, 0.5, 0.75, 1.0]; x = 0.5 + 0.4*0.25 = 0.6.
     GridAllocator g(1, 4);
-    InitGridWorkFunctor init{g.grid};
-    init(KernelAcc{});
+    g.initUniform();
 
     double u[1]    = {0.6};
     double x[1]    = {};
@@ -89,8 +124,7 @@ TEST(VegasGrid, TransformBinAssignmentCorrect) {
 TEST(VegasGrid, TransformBoundaryU0) {
     // u=0 should map to x=0 and bin=0
     GridAllocator g(1, 5);
-    InitGridWorkFunctor init{g.grid};
-    init(KernelAcc{});
+    g.initUniform();
 
     double u[1] = {0.0}, x[1] = {};
     int bins[1] = {};
@@ -104,6 +138,7 @@ TEST(VegasGrid, TransformBoundaryU0) {
 // AdaptGridWorkFunctor
 // =============================================================================
 
+#if !defined(PHIRST_BACKEND_ALPAKA)
 TEST(VegasGrid, AdaptConcentratesHighWeightRegion) {
     // 1D, 5 bins. Seed bin 0 with much higher weight. After adaptation,
     // bin 0 should be narrower: xi[1] < 1/nBins.
@@ -156,6 +191,58 @@ TEST(VegasGrid, AdaptUniformWeightsPreservesGrid) {
     for (int b = 0; b <= nBins; ++b)
         EXPECT_NEAR(g.xi[b], xiBefore[b], 1e-12) << "boundary changed at b=" << b;
 }
+#endif // !PHIRST_BACKEND_ALPAKA
+
+// =============================================================================
+// AdaptGridWorkFunctor via device memory (cross-backend)
+// Uses DeviceBuffer-backed VegasGrid so this test is valid on ALL backends.
+// Also exercises run_single_thread and fence in isolation.
+// =============================================================================
+
+TEST(VegasGrid, AdaptGridFunctorOnDevice) {
+    const int nBins = 5;
+    const int nDim  = 1;
+    DeviceGridAllocator g(nDim, nBins);
+
+    // Initialise grid uniformly on device
+    phirst::run_single_thread(InitGridWorkFunctor{g.grid});
+    phirst::fence();
+
+    // Inject biased binAcc: bin 0 has 100x weight → should attract more xi points
+    double hostBinAcc[nBins]    = {100.0, 1.0, 1.0, 1.0, 1.0};
+    int    hostBinCounts[nBins] = {1, 1, 1, 1, 1};
+    phirst::deep_copy(g.binAcc,    hostBinAcc,    nBins);
+    phirst::deep_copy(g.binCounts, hostBinCounts, nBins);
+
+    // Adapt grid on device
+    phirst::run_single_thread(AdaptGridWorkFunctor<10>{g.grid});
+    phirst::fence();
+
+    // Copy xi back to host and verify
+    const int nXi = nDim * (nBins + 1);
+    double hostXi[nXi] = {};
+    phirst::deep_copy(hostXi, g.xi, nXi);
+
+    // High-weight bin 0 attracts more points → first bin boundary narrows
+    double uniformWidth = 1.0 / nBins;
+    EXPECT_LT(hostXi[1], uniformWidth);
+
+    // Outer boundaries pinned; interior is monotone
+    EXPECT_NEAR(hostXi[0],     0.0, 1e-14);
+    EXPECT_NEAR(hostXi[nBins], 1.0, 1e-14);
+    for (int b = 0; b < nBins; ++b)
+        EXPECT_LT(hostXi[b], hostXi[b + 1]) << "non-monotone at b=" << b;
+
+    // Accumulators reset after adaptation
+    double hostBinAccOut[nBins] = {};
+    int    hostBinCountsOut[nBins] = {};
+    phirst::deep_copy(hostBinAccOut,    g.binAcc,    nBins);
+    phirst::deep_copy(hostBinCountsOut, g.binCounts, nBins);
+    for (int b = 0; b < nBins; ++b) {
+        EXPECT_DOUBLE_EQ(hostBinAccOut[b],  0.0);
+        EXPECT_EQ       (hostBinCountsOut[b], 0);
+    }
+}
 
 // =============================================================================
 // VegasWorkFunctor — integration via grid_stride_reduce
@@ -195,8 +282,8 @@ TEST(VegasWorkFunctor, AccumulatesFiniteValues) {
     double sum = 0.0, sum2 = 0.0;
     phirst::grid_stride_reduce(nWork, work, sum, sum2);
 
-    EXPECT_TRUE(std::isfinite(sum));
-    EXPECT_TRUE(std::isfinite(sum2));
+    EXPECT_TRUE(isfinite(sum));
+    EXPECT_TRUE(isfinite(sum2));
     EXPECT_GT(sum, 0.0);
     EXPECT_GT(sum2, 0.0);
 
@@ -226,8 +313,8 @@ TEST(VegasIntegration, ConstantIntegrandFinitePositive) {
     double mean = 0.0, error = 0.0;
     integrator.runVegas(cmEnergy, masses, mean, error, 5489ULL);
 
-    EXPECT_TRUE(std::isfinite(mean));
-    EXPECT_TRUE(std::isfinite(error));
+    EXPECT_TRUE(isfinite(mean));
+    EXPECT_TRUE(isfinite(error));
     EXPECT_GT(mean, 0.0);
     EXPECT_GE(error, 0.0);
 }
@@ -270,8 +357,8 @@ TEST(VegasIntegration, AgreesWithFlatIntegration) {
     double mean_vegas = 0.0, err_vegas = 0.0;
     integrator.runVegas(cmEnergy, masses, mean_vegas, err_vegas, 5489ULL);
 
-    EXPECT_TRUE(std::isfinite(mean_flat));
-    EXPECT_TRUE(std::isfinite(mean_vegas));
+    EXPECT_TRUE(isfinite(mean_flat));
+    EXPECT_TRUE(isfinite(mean_vegas));
 
     // Allow 10 combined standard errors to avoid flakiness
     double tolerance = 10.0 * (err_flat + err_vegas);

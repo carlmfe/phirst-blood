@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "test_utils.hpp"
 
 #include "phirst/backend/math.hpp"
 #include "phirst/backend/random.hpp"
@@ -17,6 +18,15 @@ struct SumWork {
     PHIRST_HOST_DEVICE void operator()(const Acc&, int64_t idx, double &acc1, double &acc2) const {
         acc1 += static_cast<double>(idx);
         acc2 += static_cast<double>(idx) * static_cast<double>(idx);
+    }
+};
+
+// File-scope functor for run_single_thread test.
+// PHIRST_HOST_DEVICE marks it callable from device code on GPU backends.
+struct WriteFortyTwo {
+    int* dest;
+    PHIRST_HOST_DEVICE void operator()(const phirst::KernelAcc&) const {
+        *dest = 42;
     }
 };
 
@@ -53,7 +63,7 @@ TEST(PhaseSpace, TwoParticleEnergyConservation) {
     double logW = gen(100.0, rng, mom);
     double sumE = mom[0][0] + mom[1][0];
     EXPECT_NEAR(sumE, 100.0, 1e-10);
-    EXPECT_TRUE(std::isfinite(logW));
+    EXPECT_TRUE(isfinite(logW));
 }
 
 TEST(Parallel, GridStrideReduceSum) {
@@ -199,6 +209,18 @@ TEST(Parallel, DeepCopyBothDirections) {
     for (int64_t i = 0; i < n; ++i) EXPECT_DOUBLE_EQ(out[i], host[i]);
 }
 
+TEST(Parallel, RunSingleThread) {
+    // Exercises run_single_thread and fence end-to-end on all backends.
+    // WriteFortyTwo writes through a device pointer; deep_copy retrieves it.
+    phirst::DeviceBuffer<int> buf(1);
+    WriteFortyTwo work{buf.data()};
+    phirst::run_single_thread(work);
+    phirst::fence();  // belt-and-suspenders: run_single_thread already syncs on GPU
+    int result = 0;
+    phirst::deep_copy(&result, buf, 1);
+    EXPECT_EQ(result, 42);
+}
+
 #if defined(PHIRST_BACKEND_SERIAL)
 TEST(Parallel, FillBuffer) {
     phirst::DeviceBuffer<double> buf(6);
@@ -244,6 +266,15 @@ TEST(Parallel, GridConfigCompute) {
 }
 
 int main(int argc, char **argv) {
+#if defined(PHIRST_BACKEND_KOKKOS)
+    // Kokkos requires explicit initialization before any View or parallel call.
+    // Each CTest process is a fresh executable, so initialize here.
+    Kokkos::initialize(argc, argv);
+#endif
     ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
+    int result = RUN_ALL_TESTS();
+#if defined(PHIRST_BACKEND_KOKKOS)
+    Kokkos::finalize();
+#endif
+    return result;
 }
