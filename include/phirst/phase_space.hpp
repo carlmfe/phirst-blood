@@ -490,9 +490,11 @@ public:
 
                 if constexpr (nParticles > 2) {
                     if (i > 1) {
-                        boostVec[0] = QPrev[1] / QPrev[0];
-                        boostVec[1] = QPrev[2] / QPrev[0];
-                        boostVec[2] = QPrev[3] / QPrev[0];
+                        // boostVec is the velocity of QPrev in the lab frame.
+                        // Negate it to boost from QPrev rest frame → lab frame.
+                        boostVec[0] = -QPrev[1] / QPrev[0];
+                        boostVec[1] = -QPrev[2] / QPrev[0];
+                        boostVec[2] = -QPrev[3] / QPrev[0];
                         boost(p[i - 1], boostVec);
                         boost(QCurr, boostVec);
                     }
