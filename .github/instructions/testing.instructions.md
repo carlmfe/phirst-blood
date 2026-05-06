@@ -54,8 +54,9 @@ The namespace is `phirst::`.
 The `tests/CMakeLists.txt` uses `find_package(GTest QUIET)` and falls back to
 `FetchContent` for GTest 1.12.1 if not found on the system.
 
-All test executables are built with a single `add_executable(test_phirst ...)` and
-discovered via `gtest_discover_tests`.
+For Alpaka, `alpaka_add_executable` is used instead of `add_executable` (it's available
+in subdir scope after `find_package(alpaka)` in the parent). All other backends use
+`add_executable` with the source language set appropriately (CUDA for CUDA/HIP).
 
 ---
 
@@ -122,12 +123,17 @@ the same value.
 ```
 tests/
 ├── CMakeLists.txt          # GoogleTest setup; backend-aware (inherits PHIRST_BACKEND from root)
+├── test_utils.hpp          # Portable isfinite alias + shared test helpers; include in all test files
 ├── test_phirst.cpp         # Math functions, parallel infrastructure, basic phase space
 ├── test_integrator.cpp     # IntegrationResult, MCWorkFunctor, RamboIntegrator.run()
 ├── test_integrands.cpp     # All four integrands (Constant, Eggholder, MandelstamS, DrellYan)
 ├── test_phase_space.cpp    # RamboAlgorithm and RamboDietAlgorithm: massless + massive, N=2–4
 └── test_vegas.cpp          # VegasGrid primitives, VegasWorkFunctor, RamboIntegrator.runVegas()
 ```
+
+**Always include `test_utils.hpp` first** (after `<gtest/gtest.h>`) in every new test file.
+It provides the portable `isfinite` alias — DPC++ SYCL only exposes `sycl::isfinite`, not
+`std::isfinite` or the global `::isfinite`.
 
 ---
 
@@ -146,10 +152,35 @@ ctest --test-dir build-serial --output-on-failure
 cmake -S . -B build-cuda -DPHIRST_BACKEND=CUDA -DPHIRST_BUILD_TESTS=ON -DPHIRST_GPU_ARCH=89
 cmake --build build-cuda --parallel
 ctest --test-dir build-cuda --output-on-failure
+
+# Kokkos backend (requires module load kokkos/5.0.1)
+cmake -S . -B build-kokkos -DPHIRST_BACKEND=KOKKOS -DPHIRST_BUILD_TESTS=ON
+cmake --build build-kokkos --parallel
+ctest --test-dir build-kokkos --output-on-failure
+
+# SYCL backend (requires module load sycl/cuda; ctest must also run with module loaded)
+cmake -S . -B build-sycl -DPHIRST_BACKEND=SYCL -DPHIRST_BUILD_TESTS=ON -DPHIRST_GPU_ARCH=89
+cmake --build build-sycl --parallel
+module load sycl/cuda && ctest --test-dir build-sycl --output-on-failure
+
+# Alpaka backend (requires module load alpaka/2.0.0_cuda)
+cmake -S . -B build-alpaka -DPHIRST_BACKEND=ALPAKA -DALPAKA_BACKEND=CUDA \
+    -DPHIRST_BUILD_TESTS=ON -DPHIRST_GPU_ARCH=89
+cmake --build build-alpaka --parallel
+module load alpaka/2.0.0_cuda && ctest --test-dir build-alpaka --output-on-failure
 ```
 
+**Verified test counts (RTX 2000 Ada, sm_89)**:
+
+| Backend | Tests | Notes |
+|---------|-------|-------|
+| SERIAL  | 59/59 | Includes 6 serial-only math/rng tests |
+| CUDA    | 53/53 | |
+| KOKKOS  | 53/53 | `Kokkos::initialize/finalize` in custom `main()` |
+| SYCL    | 53/53 | `libsycl.so` must be on `LD_LIBRARY_PATH` at runtime (module does this) |
+| ALPAKA  | 50/50 | 3 host-KernelAcc tests excluded (see Known Pitfalls) |
+
 Standalone `cmake -S tests -B build-tests` still works for serial-only development.
-Pass `-DPHIRST_BACKEND=SERIAL` explicitly to be safe.
 
 **CI workflow ownership**: CI workflows (`.github/workflows/`) are owned by the
 **Deployment agent**. Do not add or modify workflow files — refer the user to the
@@ -163,6 +194,7 @@ Deployment agent instead.
 
 ```cpp
 #include <gtest/gtest.h>
+#include "test_utils.hpp"   // ALWAYS include — provides portable isfinite
 #include "phirst/phirst.hpp"
 #include "phirst/backend/parallel.hpp"
 
@@ -182,12 +214,10 @@ TEST(RamboIntegrator, ConstantIntegrandMasslessParticles) {
     double mean = 0.0, error = 0.0;
     integrator.run(cmEnergy, masses, mean, error, seed);
 
-    // For ConstantIntegrand(1.0), mean equals the average phase space weight
-    EXPECT_TRUE(std::isfinite(mean));
-    EXPECT_TRUE(std::isfinite(error));
+    EXPECT_TRUE(isfinite(mean));    // unqualified: test_utils.hpp provides the alias
+    EXPECT_TRUE(isfinite(error));
     EXPECT_GT(mean, 0.0);
     EXPECT_GT(error, 0.0);
-    // Cross-backend reference assertion:
     EXPECT_NEAR(mean, expectedMean, 1e-6 * expectedMean);
 }
 ```
@@ -209,7 +239,7 @@ TEST(PhaseSpace, MomentumConservation) {
     double momenta[NP][4];
     double logW = algo(cmEnergy, masses, r, momenta);
 
-    EXPECT_TRUE(std::isfinite(logW));
+    EXPECT_TRUE(isfinite(logW));   // unqualified — provided by test_utils.hpp
 
     double sumE = 0.0, sumPx = 0.0, sumPy = 0.0, sumPz = 0.0;
     for (int i = 0; i < NP; ++i) {
@@ -227,6 +257,19 @@ TEST(PhaseSpace, MomentumConservation) {
 
 ---
 
+## Known Pitfalls
+
+| Pitfall | Cause | Fix |
+|---------|-------|-----|
+| `std::isfinite` / `isfinite` undeclared (SYCL) | DPC++ exposes it only as `sycl::isfinite` | Use unqualified `isfinite` — `test_utils.hpp` provides the right alias |
+| `Kokkos ERROR: View constructed before initialize()` | `DeviceBuffer<T>` uses `Kokkos::View` — requires init before any construction | Custom `main()` in `test_phirst.cpp` calls `Kokkos::initialize/finalize` under `#if PHIRST_BACKEND_KOKKOS` |
+| Alpaka `KernelAcc{}` fails to compile | `AccGpuUniformCudaHipRt` is not host-constructible by user code | Use `GridAllocator::initUniform()` for host-side grid init; guard tests that call `adapt(KernelAcc{})` with `#if !defined(PHIRST_BACKEND_ALPAKA)` |
+| `libsycl.so` not found at runtime | SYCL runtime lib not in `LD_LIBRARY_PATH` | Run `ctest` in the same shell where `module load sycl/cuda` was executed |
+| Kokkos `No tests were found!!!` | `PHIRST_BUILD_TESTS=ON` not set at configure time | Re-run cmake with `-DPHIRST_BUILD_TESTS=ON` |
+| Alpaka test binary not found | Stale build dir from before `alpaka_add_executable` fix | Re-configure from scratch: `cmake -S . -B build-alpaka ...` |
+
+---
+
 ## Test Conventions
 
 - Use `EXPECT_*` (non-fatal) over `ASSERT_*` (fatal) unless a failure makes later assertions
@@ -239,6 +282,10 @@ TEST(PhaseSpace, MomentumConservation) {
   pipeline behaviour.
 - New integrands must have at least one test verifying their `evaluate()` returns finite,
   physically reasonable values for a typical momentum configuration.
+- Always include `test_utils.hpp` and use unqualified `isfinite(x)` — never `std::isfinite`.
+- Tests that call `KernelAcc{}` directly (host-side functor invocation) must be guarded
+  with `#if !defined(PHIRST_BACKEND_ALPAKA)`. Prefer `run_single_thread` + `DeviceBuffer`
+  for cross-backend functor tests.
 
 ---
 
