@@ -152,12 +152,6 @@ TEST(PhaseSpaceDiet, TwoParticleMasslessConservation) {
     checkMomentumConservation<NP>(mom, cmEnergy);
 }
 
-// NOTE: The following two tests are expected to FAIL in the current source.
-// RamboDietAlgorithm::boost() applies the boost in the wrong direction for N>=3
-// (boostVec transforms from global to QPrev rest frame instead of QPrev rest
-// to global frame). This exposes a suspected bug in the source code that should
-// be referred to the C++ Development agent.
-
 TEST(PhaseSpaceDiet, ThreeParticleMasslessConservation) {
     constexpr int NP = 3;
     double masses[NP] = {0.0, 0.0, 0.0};
