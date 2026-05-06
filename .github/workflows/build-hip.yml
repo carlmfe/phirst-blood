@@ -12,10 +12,10 @@ name: Build (HIP)
 # GPU architecture: auto-detected via rocm_agent_enumerator on the runner;
 # override with -DPHIRST_GPU_ARCH=gfxNNNN if needed.
 
+# Disabled: no AMD runner available yet. Re-enable by restoring the 'on:' triggers
+# when an AMD self-hosted runner with label 'amd' is registered.
 on:
-  push:
-    branches: [main, "dev/**"]
-  pull_request:
+  workflow_dispatch:  # manual trigger only
 
 jobs:
   build-hip:
