@@ -16,8 +16,8 @@ namespace phirst {
 struct VegasParams {
     int nDim = 2;                 // Number of integration dimensions
     int nBins = -1;               // Number of bins per dimension
-    int nIterations = 10;         // Number of adaptation iterations
-    int64_t nCallsPerIter = -1; // Samples per iteration
+    int nIterations = 5;          // Number of (probe → adapt → integrate) iterations
+    int64_t nCallsPerIter = -1; // Probe events per iteration (-1 = auto: max(10000, 100*nBins*nDim))
     double alpha = 1.5;           // Grid adaptation damping parameter
     bool verbose = true;          // Print iteration results
     int minIterations = 1;        // Do not stop before this many iterations
@@ -65,7 +65,7 @@ struct VegasGrid {
     }
 };
 
-template <typename Generator, typename Integrand, int NumParticles, int MaxDim = 10>
+template <typename Generator, typename Integrand, int NumParticles, int MaxDim = 10, bool UpdateBins = true>
 struct VegasWorkFunctor {
     Generator generator;
     Integrand integrand;
@@ -110,11 +110,16 @@ struct VegasWorkFunctor {
         sum += weightedValue;
         sum2 += weightedValue * weightedValue;
 
-        double abs_weighted_val = math::fabs(weightedValue);
-        for (int d = 0; d < grid.nDim; ++d) {
-            int bin_idx = d * grid.nBins + bins[d];
-            atomic_add(acc, &grid.binAcc[bin_idx], abs_weighted_val);
-            atomic_add(acc, &grid.binCounts[bin_idx], 1);
+        // Bin updates are only needed during the probe phase.
+        // The integration phase skips atomics entirely (UpdateBins=false),
+        // eliminating the GPU contention that makes VEGAS slow for cheap integrands.
+        if constexpr (UpdateBins) {
+            double abs_weighted_val = math::fabs(weightedValue);
+            for (int d = 0; d < grid.nDim; ++d) {
+                int bin_idx = d * grid.nBins + bins[d];
+                atomic_add(acc, &grid.binAcc[bin_idx], abs_weighted_val);
+                atomic_add(acc, &grid.binCounts[bin_idx], 1);
+            }
         }
     }
 };

@@ -181,15 +181,20 @@ public:
 
         VegasParams params;
         params.nDim = Generator::nRandomNumbers;
+
+        // Probe events per iteration: small enough to keep GPU atomic contention
+        // manageable (~1000 updates per bin), large enough for reliable adaptation.
         if (params.nCallsPerIter < 0) {
-            params.nCallsPerIter = static_cast<int>(
-                std::min(100.0 * math::pow(10, params.nDim), 1'000'000.0));
+            params.nCallsPerIter = 10000;
         }
+        const int64_t nProbePerIter = params.nCallsPerIter;
+
         if (params.nBins < 0) {
             params.nBins = static_cast<int>(std::min(
-                math::pow(0.5 * static_cast<double>(params.nCallsPerIter),
+                math::pow(static_cast<double>(nProbePerIter),
                           1.0 / static_cast<double>(params.nDim)),
                 50.0));
+            params.nBins = std::max(params.nBins, 2);
         }
 
         // Allocate device memory for the VEGAS grid
@@ -208,35 +213,44 @@ public:
         run_single_thread(initFunctor);
 
         Generator generator(masses);
-        VegasWorkFunctor<Generator, Integrand, NumParticles> work(
-            generator, integrand_, cmEnergy, masses, seed, grid);
 
-        const int nIters = (nEvents_ + params.nCallsPerIter - 1) / params.nCallsPerIter;
+        // Two-phase per iteration:
+        //   Phase 1 (probe):     nProbePerIter events WITH bin updates → grid adapts.
+        //                        Atomic contention is manageable due to small event count.
+        //   Phase 2 (integrate): nIntegratePerIter events WITHOUT bin updates → no atomics.
+        //                        This is the performance-critical path; runs at flat-MC speed.
+        using ProbeF = VegasWorkFunctor<Generator, Integrand, NumParticles, 10, true>;
+        using IntF   = VegasWorkFunctor<Generator, Integrand, NumParticles, 10, false>;
+
+        const int nIters = std::max(1, params.nIterations);
+        const int64_t nIntegratePerIter = std::max(static_cast<int64_t>(1), nEvents_ / static_cast<int64_t>(nIters));
+
         IntegrationResult totalResult;
-        totalResult.nEvents = nIters * params.nCallsPerIter;
+        totalResult.nEvents = static_cast<int64_t>(nIters) * nIntegratePerIter;
 
         for (int iter = 0; iter < nIters; ++iter) {
-            double iterSum = 0.0;
-            double iterSum2 = 0.0;
+            // Phase 1: probe (small, with atomics) to gather bin statistics
+            const uint64_t probeSeed = seed ^ (static_cast<uint64_t>(iter + 1) * 0xBF58476D1CE4E5B9ULL);
+            ProbeF probeWork(generator, integrand_, cmEnergy, masses, probeSeed, grid);
+            double probeSum = 0.0, probeSum2 = 0.0;
+            grid_stride_reduce(nProbePerIter, probeWork, probeSum, probeSum2);
 
-            grid_stride_reduce(
-                params.nCallsPerIter,
-                work,
-                iterSum,
-                iterSum2
-            );
+            // Adapt the VEGAS grid and reset bin accumulators for the next probe
+            AdaptGridWorkFunctor<100> adaptFunctor{grid};
+            run_single_thread(adaptFunctor);
 
-            totalResult.sum += iterSum;
+            // Phase 2: integrate with the adapted grid, no bin updates (no GPU atomics)
+            const uint64_t intSeed = seed + static_cast<uint64_t>(iter + 1) * 0x94D049BB133111EBULL;
+            IntF intWork(generator, integrand_, cmEnergy, masses, intSeed, grid);
+            double iterSum = 0.0, iterSum2 = 0.0;
+            grid_stride_reduce(nIntegratePerIter, intWork, iterSum, iterSum2);
+
+            totalResult.sum  += iterSum;
             totalResult.sum2 += iterSum2;
-
-            if (iter < nIters - 1) {
-                AdaptGridWorkFunctor<100> adaptFunctor{grid};
-                run_single_thread(adaptFunctor);
-            }
         }
 
         totalResult.computeStatistics();
-        mean = totalResult.mean;
+        mean  = totalResult.mean;
         error = totalResult.error;
     }
 
