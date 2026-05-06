@@ -1,0 +1,38 @@
+name: Build (SERIAL)
+
+on:
+  push:
+    branches: [main, "dev/**"]
+  pull_request:
+
+jobs:
+  build-serial:
+    runs-on: [self-hosted, gpu]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure (SERIAL backend)
+        run: |
+          cmake -S . -B build-serial \
+            -DPHIRST_BACKEND=SERIAL \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build examples
+        run: cmake --build build-serial --parallel
+
+      - name: Configure tests
+        run: |
+          cmake -S tests -B build-serial-tests \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SOURCE_DIR=${{ github.workspace }}
+
+      - name: Build tests
+        run: cmake --build build-serial-tests --parallel
+
+      - name: Run tests
+        run: |
+          cd build-serial-tests
+          ctest --output-on-failure

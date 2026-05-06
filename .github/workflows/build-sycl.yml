@@ -1,0 +1,46 @@
+name: Build (SYCL)
+
+on:
+  push:
+    branches: [main, "dev/**"]
+  pull_request:
+
+jobs:
+  build-sycl:
+    runs-on: [self-hosted, gpu]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure (SYCL backend, CUDA device)
+        shell: bash -l {0}
+        run: |
+          module load sycl/cuda
+          cmake -S . -B build-sycl \
+            -DPHIRST_BACKEND=SYCL \
+            -DSYCL_BACKEND=CUDA \
+            -DPHIRST_GPU_ARCH=sm_89 \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build examples
+        shell: bash -l {0}
+        run: |
+          module load sycl/cuda
+          cmake --build build-sycl --parallel
+
+      - name: Configure tests
+        run: |
+          cmake -S tests -B build-sycl-tests \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SOURCE_DIR=${{ github.workspace }}
+
+      - name: Build tests
+        run: cmake --build build-sycl-tests --parallel
+
+      - name: Run tests
+        run: |
+          cd build-sycl-tests
+          ctest --output-on-failure

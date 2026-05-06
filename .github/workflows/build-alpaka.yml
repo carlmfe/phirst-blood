@@ -1,0 +1,45 @@
+name: Build (ALPAKA)
+
+on:
+  push:
+    branches: [main, "dev/**"]
+  pull_request:
+
+jobs:
+  build-alpaka:
+    runs-on: [self-hosted, gpu]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure (Alpaka backend, CUDA sub-backend)
+        shell: bash -l {0}
+        run: |
+          module load alpaka/2.0.0_cuda
+          cmake -S . -B build-alpaka \
+            -DPHIRST_BACKEND=ALPAKA \
+            -DALPAKA_BACKEND=CUDA \
+            -DPHIRST_GPU_ARCH=89 \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build examples
+        shell: bash -l {0}
+        run: |
+          module load alpaka/2.0.0_cuda
+          cmake --build build-alpaka --parallel
+
+      - name: Configure tests
+        run: |
+          cmake -S tests -B build-alpaka-tests \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SOURCE_DIR=${{ github.workspace }}
+
+      - name: Build tests
+        run: cmake --build build-alpaka-tests --parallel
+
+      - name: Run tests
+        run: |
+          cd build-alpaka-tests
+          ctest --output-on-failure
