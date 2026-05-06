@@ -126,6 +126,12 @@ endfunction()
 set(PHIRST_BACKEND "AUTO" CACHE STRING "Backend: AUTO, SERIAL, CUDA, KOKKOS, ALPAKA, SYCL")
 set_property(CACHE PHIRST_BACKEND PROPERTY STRINGS AUTO SERIAL CUDA KOKKOS ALPAKA SYCL)
 
+# GPU architecture override (optional).
+# CUDA/Alpaka:  single SM number or semicolon-separated list, e.g. "89" or "80;89"
+# SYCL/CUDA:    full arch string, e.g. "sm_89"
+# Leave empty to let each backend auto-detect (default behaviour).
+set(PHIRST_GPU_ARCH "" CACHE STRING "Override GPU architecture (e.g. 89 for CUDA/Alpaka, sm_89 for SYCL)")
+
 # --- AUTO detection ---
 if(PHIRST_BACKEND STREQUAL "AUTO")
     include(CheckLanguage)
@@ -227,16 +233,21 @@ elseif(PHIRST_BACKEND STREQUAL "CUDA")
     set(CMAKE_CUDA_STANDARD 20)
     set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
-    # Auto-detect SM architectures unless explicitly set by the user
-    if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES OR CMAKE_CUDA_ARCHITECTURES STREQUAL "")
+    # Resolve CUDA architectures: PHIRST_GPU_ARCH > existing cache > auto-detect
+    if(PHIRST_GPU_ARCH)
+        set(CMAKE_CUDA_ARCHITECTURES "${PHIRST_GPU_ARCH}" CACHE STRING "CUDA architectures" FORCE)
+        message(STATUS "CUDA architectures (from PHIRST_GPU_ARCH): ${CMAKE_CUDA_ARCHITECTURES}")
+    elseif(NOT DEFINED CMAKE_CUDA_ARCHITECTURES OR CMAKE_CUDA_ARCHITECTURES STREQUAL "")
         detect_nvidia_architectures(_detected_cuda_archs)
         set(CMAKE_CUDA_ARCHITECTURES "${_detected_cuda_archs}" CACHE STRING "CUDA architectures" FORCE)
+        message(STATUS "CUDA architectures (auto-detected): ${CMAKE_CUDA_ARCHITECTURES}")
+    else()
+        message(STATUS "CUDA architectures (cached): ${CMAKE_CUDA_ARCHITECTURES}")
     endif()
-    message(STATUS "CUDA architectures: ${CMAKE_CUDA_ARCHITECTURES}")
-    
+
     # For CUDA, rename .cpp to .cu
     set_source_files_properties(examples/drell_yan.cpp examples/eggholder.cpp PROPERTIES LANGUAGE CUDA)
-    
+
     add_executable(${EXENAME_DY} ${SOURCES_DY})
     target_include_directories(${EXENAME_DY} PRIVATE include)
     target_compile_definitions(${EXENAME_DY} PRIVATE PHIRST_BACKEND_CUDA)
@@ -284,7 +295,12 @@ elseif(PHIRST_BACKEND STREQUAL "ALPAKA")
     
     if(ALPAKA_BACKEND STREQUAL "CUDA" AND CMAKE_CUDA_COMPILER)
         enable_language(CUDA)
-        set(CMAKE_CUDA_ARCHITECTURES "native" CACHE STRING "CUDA architectures")
+        if(PHIRST_GPU_ARCH)
+            set(CMAKE_CUDA_ARCHITECTURES "${PHIRST_GPU_ARCH}" CACHE STRING "CUDA architectures" FORCE)
+            message(STATUS "Alpaka CUDA architectures (from PHIRST_GPU_ARCH): ${CMAKE_CUDA_ARCHITECTURES}")
+        else()
+            set(CMAKE_CUDA_ARCHITECTURES "native" CACHE STRING "CUDA architectures")
+        endif()
         set(alpaka_ACC_GPU_CUDA_ENABLE ON)
         add_compile_definitions(ALPAKA_USE_CUDA)
     elseif(ALPAKA_BACKEND STREQUAL "OMP")
@@ -295,9 +311,9 @@ elseif(PHIRST_BACKEND STREQUAL "ALPAKA")
         set(alpaka_ACC_CPU_B_SEQ_T_SEQ_ENABLE ON)
         add_compile_definitions(ALPAKA_USE_CPU_SERIAL)
     endif()
-    
+
     find_package(alpaka REQUIRED)
-    
+
     alpaka_add_executable(${EXENAME_DY} ${SOURCES_DY})
     target_include_directories(${EXENAME_DY} PRIVATE include)
     target_compile_definitions(${EXENAME_DY} PRIVATE PHIRST_BACKEND_ALPAKA)
@@ -332,7 +348,13 @@ elseif(PHIRST_BACKEND STREQUAL "SYCL")
     target_compile_definitions(${EXENAME_EGG} PRIVATE PHIRST_BACKEND_SYCL)
     
     if(SYCL_BACKEND STREQUAL "CUDA")
-        set(CUDA_GPU_ARCH "sm_70" CACHE STRING "CUDA GPU architecture")
+        set(CUDA_GPU_ARCH "sm_70" CACHE STRING "CUDA GPU architecture for SYCL")
+        if(PHIRST_GPU_ARCH)
+            set(CUDA_GPU_ARCH "${PHIRST_GPU_ARCH}" CACHE STRING "CUDA GPU architecture for SYCL" FORCE)
+            message(STATUS "SYCL CUDA arch (from PHIRST_GPU_ARCH): ${CUDA_GPU_ARCH}")
+        else()
+            message(STATUS "SYCL CUDA arch: ${CUDA_GPU_ARCH}")
+        endif()
         target_compile_options(${EXENAME_DY} PRIVATE
             -fsycl
             -fsycl-targets=nvptx64-nvidia-cuda
