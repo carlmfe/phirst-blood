@@ -43,7 +43,7 @@ struct IntegrationResult {
      * Compute mean and standard error from accumulated sums.
      */
     void computeStatistics() {
-        if (nEvents == 0) return;
+        if (nEvents == 0) { return; }
         mean = sum / static_cast<double>(nEvents);
         double variance = (sum2 / static_cast<double>(nEvents)) - (mean * mean);
         error = math::sqrt(math::fabs(variance) / static_cast<double>(nEvents));
@@ -70,13 +70,13 @@ struct MCWorkFunctor {
     Integrand integrand;
     double cmEnergy;
     uint64_t baseSeed;
-    double masses[NumParticles];
+    double masses[NumParticles] = {};
 
     PHIRST_HOST_DEVICE
     MCWorkFunctor(const Generator& gen, const Integrand& integ, double E,
                   const double* m, uint64_t seed)
         : generator(gen), integrand(integ), cmEnergy(E), baseSeed(seed) {
-        for (int i = 0; i < NumParticles; ++i) masses[i] = m[i];
+        for (int i = 0; i < NumParticles; ++i) { masses[i] = m[i]; }
     }
 
     template <typename Acc>
@@ -182,16 +182,20 @@ public:
         VegasParams params;
         params.nDim = Generator::nRandomNumbers;
         if (params.nCallsPerIter < 0) {
-            params.nCallsPerIter = std::min<int>(100 * math::pow(10, params.nDim), 1000000);
+            params.nCallsPerIter = static_cast<int>(
+                std::min(100.0 * math::pow(10, params.nDim), 1'000'000.0));
         }
         if (params.nBins < 0) {
-            params.nBins = std::min<int>(math::pow(0.5 * params.nCallsPerIter, 1.0 / (double)params.nDim), 50);
+            params.nBins = static_cast<int>(std::min(
+                math::pow(0.5 * static_cast<double>(params.nCallsPerIter),
+                          1.0 / static_cast<double>(params.nDim)),
+                50.0));
         }
 
         // Allocate device memory for the VEGAS grid
-        DeviceBuffer<double> d_xi(params.nDim * (params.nBins + 1));
-        DeviceBuffer<double> d_binAcc(params.nDim * params.nBins);
-        DeviceBuffer<int>    d_binCounts(params.nDim * params.nBins);
+        DeviceBuffer<double> d_xi(static_cast<int64_t>(params.nDim) * (params.nBins + 1));
+        DeviceBuffer<double> d_binAcc(static_cast<int64_t>(params.nDim) * params.nBins);
+        DeviceBuffer<int>    d_binCounts(static_cast<int64_t>(params.nDim) * params.nBins);
 
         // Create the grid struct with pointers to device memory
         VegasGrid grid {

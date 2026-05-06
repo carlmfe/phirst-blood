@@ -91,7 +91,7 @@ struct DrellYanIntegrand {
         HEPUtils::P4 Ptot = momenta[0] + momenta[1];
         double sqrtS = Ptot.m();
         double s = sqrtS * sqrtS;
-        if (sqrtS <= 0.0) return 0.0;
+        if (sqrtS <= 0.0) { return 0.0; }
 
         HEPUtils::P4 p1 = HEPUtils::P4::mkXYZM(0.0, 0.0, +sqrtS / 2.0, 0.0);
 

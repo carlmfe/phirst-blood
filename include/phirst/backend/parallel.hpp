@@ -34,10 +34,10 @@ struct GridConfig {
     int64_t numBlocks;
 
     static GridConfig compute(int64_t nWork, int64_t blockSz = 256, int64_t maxBlks = 1024) {
-        GridConfig cfg;
+        GridConfig cfg{};
         cfg.blockSize = blockSz;
         cfg.numBlocks = (nWork + blockSz - 1) / blockSz;
-        if (cfg.numBlocks > maxBlks) cfg.numBlocks = maxBlks;
+        if (cfg.numBlocks > maxBlks) { cfg.numBlocks = maxBlks; }
         cfg.totalThreads = cfg.numBlocks * cfg.blockSize;
         return cfg;
     }
@@ -60,7 +60,7 @@ inline uint64_t seed_for_thread(uint64_t baseSeed, int64_t threadIdx) {
 template <typename T>
 T host_reduce(const T* data, int64_t n) {
     T sum = T{};
-    for (int64_t i = 0; i < n; ++i) sum += data[i];
+    for (int64_t i = 0; i < n; ++i) { sum += data[i]; }
     return sum;
 }
 

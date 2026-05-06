@@ -23,15 +23,15 @@ void runBenchmark(const std::string& backendName,
                   uint64_t seed,
                   bool useVegas) {
 
-    std::cout << "----------------------------------------" << std::endl;
+    std::cout << "----------------------------------------\n";
     std::cout << "Backend: " << backendName;
     if (useVegas) {
         std::cout << " (VEGAS)";
     } else {
         std::cout << " (Flat MC)";
     }
-    std::cout << std::endl;
-    std::cout << "----------------------------------------" << std::endl;
+    std::cout << '\n';
+    std::cout << "----------------------------------------\n";
 
     double mean = 0.0;
     double error = 0.0;
@@ -59,13 +59,13 @@ void runBenchmark(const std::string& backendName,
 
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-    double timeMs = duration.count() / 1000.0;
+    double timeMs = static_cast<double>(duration.count()) / 1000.0;
 
-    std::cout << "  Mean: " << mean << std::endl;
-    std::cout << "  Error: " << error << std::endl;
-    std::cout << "  Time: " << timeMs << " ms" << std::endl;
-    std::cout << "  Throughput: " << (nEvents / timeMs * 1000.0) << " events/sec" << std::endl;
-    std::cout << std::endl;
+    std::cout << "  Mean: " << mean << '\n';
+    std::cout << "  Error: " << error << '\n';
+    std::cout << "  Time: " << timeMs << " ms\n";
+    std::cout << "  Throughput: " << (static_cast<double>(nEvents) / timeMs * 1000.0) << " events/sec\n";
+    std::cout << '\n';
 }
 
 // =============================================================================
@@ -89,36 +89,36 @@ int main(int argc, char* argv[]) {
     // The EggholderIntegrand provided requires exactly 3 particles
     constexpr int nParticles = 3;
 
-    std::cout << "========================================" << std::endl;
-    std::cout << "RAMBO Monte Carlo Integrator : Eggholder Test" << std::endl;
-    std::cout << "========================================" << std::endl;
+    std::cout << "========================================\n";
+    std::cout << "RAMBO Monte Carlo Integrator : Eggholder Test\n";
+    std::cout << "========================================\n";
     std::cout << "Library version: " << phirst::VERSION_MAJOR << "."
-              << phirst::VERSION_MINOR << "." << phirst::VERSION_PATCH << std::endl;
-    std::cout << "Compiled backend: " << phirst::BACKEND_NAME << std::endl;
-    std::cout << "Number of events: " << nEvents << std::endl;
-    std::cout << "Random seed: " << seed << std::endl;
-    std::cout << "Center-of-mass energy: " << cmEnergy << " GeV" << std::endl;
-    std::cout << "Number of particles: " << nParticles << std::endl;
-    std::cout << "Integration Mode: " << (useVegas ? "VEGAS" : "Flat MC") << std::endl;
-    std::cout << std::endl;
+              << phirst::VERSION_MINOR << "." << phirst::VERSION_PATCH << '\n';
+    std::cout << "Compiled backend: " << phirst::BACKEND_NAME << '\n';
+    std::cout << "Number of events: " << nEvents << '\n';
+    std::cout << "Random seed: " << seed << '\n';
+    std::cout << "Center-of-mass energy: " << cmEnergy << " GeV\n";
+    std::cout << "Number of particles: " << nParticles << '\n';
+    std::cout << "Integration Mode: " << (useVegas ? "VEGAS" : "Flat MC") << '\n';
+    std::cout << '\n';
 
     double masses[nParticles] = {0.0, 0.0, 0.0};
 
     const double lambda = 1000000.0;
     phirst::EggholderIntegrand integrand(lambda);
 
-    std::cout << "----------------------------------------" << std::endl;
-    std::cout << "Eggholder Integrand Parameters:" << std::endl;
-    std::cout << "----------------------------------------" << std::endl;
-    std::cout << "Lambda squared: " << lambda << std::endl;
-    std::cout << std::endl;
+    std::cout << "----------------------------------------\n";
+    std::cout << "Eggholder Integrand Parameters:\n";
+    std::cout << "----------------------------------------\n";
+    std::cout << "Lambda squared: " << lambda << '\n';
+    std::cout << '\n';
 
     runBenchmark<phirst::EggholderIntegrand, nParticles, phirst::RamboDietAlgorithm<nParticles>>(
         phirst::BACKEND_NAME, nEvents, cmEnergy, masses, integrand, seed, useVegas);
 
-    std::cout << "======================================" << std::endl;
-    std::cout << "Benchmark complete." << std::endl;
-    std::cout << "======================================" << std::endl;
+    std::cout << "======================================\n";
+    std::cout << "Benchmark complete.\n";
+    std::cout << "======================================\n";
 
     // -------------------------------------------------------------------------
     // Backend Finalization

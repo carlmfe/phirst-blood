@@ -17,8 +17,7 @@
 
 #include "config.hpp"
 
-namespace phirst {
-namespace math {
+namespace phirst::math {
 
 // =============================================================================
 // Basic Math Functions
@@ -297,7 +296,6 @@ inline constexpr double e = 2.71828182845904523536028747135266250;
 /// Natural log of 2
 inline constexpr double ln2 = 0.69314718055994530941723212145817657;
 
-} // namespace math
-} // namespace phirst
+} // namespace phirst::math
 
 #endif // PHIRST_MATH_HPP

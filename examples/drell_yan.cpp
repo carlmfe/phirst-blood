@@ -23,15 +23,15 @@ void runBenchmark(const std::string& backendName,
                   uint64_t seed,
                   bool useVegas) {
     
-    std::cout << "----------------------------------------" << std::endl;
+    std::cout << "----------------------------------------\n";
     std::cout << "Backend: " << backendName;
     if (useVegas) {
         std::cout << " (VEGAS)";
     } else {
         std::cout << " (Flat MC)";
     }
-    std::cout << std::endl;
-    std::cout << "----------------------------------------" << std::endl;
+    std::cout << '\n';
+    std::cout << "----------------------------------------\n";
     
     double mean = 0.0;
     double error = 0.0;
@@ -59,13 +59,13 @@ void runBenchmark(const std::string& backendName,
 
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-    double timeMs = duration.count() / 1000.0;
+    double timeMs = static_cast<double>(duration.count()) / 1000.0;
     
-    std::cout << "  Mean: " << mean << std::endl;
-    std::cout << "  Error: " << error << std::endl;
-    std::cout << "  Time: " << timeMs << " ms" << std::endl;
-    std::cout << "  Throughput: " << (nEvents / timeMs * 1000.0) << " events/sec" << std::endl;
-    std::cout << std::endl;
+    std::cout << "  Mean: " << mean << '\n';
+    std::cout << "  Error: " << error << '\n';
+    std::cout << "  Time: " << timeMs << " ms\n";
+    std::cout << "  Throughput: " << (static_cast<double>(nEvents) / timeMs * 1000.0) << " events/sec\n";
+    std::cout << '\n';
 }
 
 // =============================================================================
@@ -87,18 +87,18 @@ int main(int argc, char* argv[]) {
     const double cmEnergy = 91.2;
     constexpr int nParticles = 2;
     
-    std::cout << "========================================" << std::endl;
-    std::cout << "RAMBO Monte Carlo Integrator : Drell-Yan" << std::endl;
-    std::cout << "========================================" << std::endl;
+    std::cout << "========================================\n";
+    std::cout << "RAMBO Monte Carlo Integrator : Drell-Yan\n";
+    std::cout << "========================================\n";
     std::cout << "Library version: " << phirst::VERSION_MAJOR << "."
-              << phirst::VERSION_MINOR << "." << phirst::VERSION_PATCH << std::endl;
-    std::cout << "Compiled backend: " << phirst::BACKEND_NAME << std::endl;
-    std::cout << "Number of events: " << nEvents << std::endl;
-    std::cout << "Random seed: " << seed << std::endl;
-    std::cout << "Center-of-mass energy: " << cmEnergy << " GeV" << std::endl;
-    std::cout << "Number of particles: " << nParticles << std::endl;
-    std::cout << "Integration Mode: " << (useVegas ? "VEGAS" : "Flat MC") << std::endl;
-    std::cout << std::endl;
+              << phirst::VERSION_MINOR << "." << phirst::VERSION_PATCH << '\n';
+    std::cout << "Compiled backend: " << phirst::BACKEND_NAME << '\n';
+    std::cout << "Number of events: " << nEvents << '\n';
+    std::cout << "Random seed: " << seed << '\n';
+    std::cout << "Center-of-mass energy: " << cmEnergy << " GeV\n";
+    std::cout << "Number of particles: " << nParticles << '\n';
+    std::cout << "Integration Mode: " << (useVegas ? "VEGAS" : "Flat MC") << '\n';
+    std::cout << '\n';
     
     constexpr double electronMass = 0.000511;
     double masses[nParticles] = {electronMass, electronMass};
@@ -107,35 +107,35 @@ int main(int argc, char* argv[]) {
     const double alphaEM = 1.0 / 137.035999;
     phirst::DrellYanIntegrand integrand(quarkCharge, alphaEM);
     
-    std::cout << "----------------------------------------" << std::endl;
-    std::cout << "Drell-Yan Process: q qbar -> gamma* -> e+ e-" << std::endl;
-    std::cout << "----------------------------------------" << std::endl;
-    std::cout << "Quark charge (e_q): " << quarkCharge << std::endl;
-    std::cout << "Fine structure constant (alpha): " << alphaEM << std::endl;
-    std::cout << std::endl;
+    std::cout << "----------------------------------------\n";
+    std::cout << "Drell-Yan Process: q qbar -> gamma* -> e+ e-\n";
+    std::cout << "----------------------------------------\n";
+    std::cout << "Quark charge (e_q): " << quarkCharge << '\n';
+    std::cout << "Fine structure constant (alpha): " << alphaEM << '\n';
+    std::cout << '\n';
     
     runBenchmark<phirst::DrellYanIntegrand, nParticles, phirst::RamboDietAlgorithm<nParticles>>(
         phirst::BACKEND_NAME, nEvents, cmEnergy, masses, integrand, seed, useVegas);
     
     // Analytic verification
-    std::cout << "========================================" << std::endl;
-    std::cout << "Analytic Verification" << std::endl;
-    std::cout << "========================================" << std::endl;
+    std::cout << "========================================\n";
+    std::cout << "Analytic Verification\n";
+    std::cout << "========================================\n";
     double s = cmEnergy * cmEnergy;
     double analyticSigma = phirst::DrellYanIntegrand::analyticCrossSection(s, quarkCharge, alphaEM);
     
     std::cout << std::scientific << std::setprecision(6);
-    std::cout << "Analytic cross-section:" << std::endl;
-    std::cout << "  sigma = 4*pi*alpha^2*e_q^2 / (3*s) * hbarc^2" << std::endl;
-    std::cout << "  s = " << s << " GeV^2" << std::endl;
-    std::cout << "  sigma = " << analyticSigma << " mb" << std::endl;
-    std::cout << "  sigma = " << analyticSigma * 1e6 << " nb" << std::endl;
-    std::cout << "  sigma = " << analyticSigma * 1e9 << " pb" << std::endl;
-    std::cout << std::endl;
+    std::cout << "Analytic cross-section:\n";
+    std::cout << "  sigma = 4*pi*alpha^2*e_q^2 / (3*s) * hbarc^2\n";
+    std::cout << "  s = " << s << " GeV^2\n";
+    std::cout << "  sigma = " << analyticSigma << " mb\n";
+    std::cout << "  sigma = " << analyticSigma * 1e6 << " nb\n";
+    std::cout << "  sigma = " << analyticSigma * 1e9 << " pb\n";
+    std::cout << '\n';
     
-    std::cout << "======================================" << std::endl;
-    std::cout << "Benchmark complete." << std::endl;
-    std::cout << "======================================" << std::endl;
+    std::cout << "======================================\n";
+    std::cout << "Benchmark complete.\n";
+    std::cout << "======================================\n";
 
     // -------------------------------------------------------------------------
     // Backend Finalization

@@ -49,8 +49,8 @@ struct VegasGrid {
         for (int d = 0; d < nDim; ++d) {
             double pos = u[d] * nBins;
             int bin = static_cast<int>(pos);
-            if (bin >= nBins) bin = nBins - 1;
-            if (bin < 0) bin = 0;
+            if (bin >= nBins) { bin = nBins - 1; }
+            if (bin < 0) { bin = 0; }
 
             double frac = pos - bin;
             double xLow = xi[d * (nBins + 1) + bin];
@@ -71,15 +71,14 @@ struct VegasWorkFunctor {
     Integrand integrand;
     double cmEnergy;
     uint64_t baseSeed;
-    double masses[NumParticles];
+    double masses[NumParticles] = {};
     VegasGrid grid;
 
     PHIRST_HOST_DEVICE
     VegasWorkFunctor(const Generator& gen, const Integrand& integ, double E, 
                      const double* m, uint64_t seed, const VegasGrid& g)
-        : generator(gen), integrand(integ), cmEnergy(E), baseSeed(seed), 
-          grid(g) {
-        for (int i = 0; i < NumParticles; ++i) this->masses[i] = m[i];
+        : generator(gen), integrand(integ), cmEnergy(E), baseSeed(seed), grid(g) {
+        for (int i = 0; i < NumParticles; ++i) { this->masses[i] = m[i]; }
     }
 
     template <typename Acc>
@@ -170,7 +169,7 @@ struct AdaptGridWorkFunctor {
                 sumF += avgF[i];
             }
 
-            if (sumF <= 0.0) continue;
+            if (sumF <= 0.0) { continue; }
 
             // --- Step 2: Smooth weights based on the VEGAS algorithm ---
             double sumWeights = 0.0;

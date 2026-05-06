@@ -9,8 +9,7 @@
 // Forward declare GridConfig, KernelAcc if needed, though they might be better placed
 // in a common types file if used universally. For now, we define what Serial needs.
 
-namespace phirst {
-namespace serial_impl {
+namespace phirst::serial_impl {
 
 // Execution Space Tag
 struct HostSpace {};
@@ -24,7 +23,7 @@ template <typename T>
 class DeviceBuffer {
 public:
     DeviceBuffer() : data_(nullptr), size_(0) {}
-    explicit DeviceBuffer(int64_t n) : size_(n) { data_ = new T[n](); }
+    explicit DeviceBuffer(int64_t n) : data_(new T[n]()), size_(n) {}
     ~DeviceBuffer() { delete[] data_; }
 
     DeviceBuffer(DeviceBuffer&& o) noexcept : data_(o.data_), size_(o.size_) { o.data_ = nullptr; o.size_ = 0; }
@@ -35,9 +34,9 @@ public:
     DeviceBuffer(const DeviceBuffer&) = delete;
     DeviceBuffer& operator=(const DeviceBuffer&) = delete;
 
-    T* data() { return data_; }
-    const T* data() const { return data_; }
-    int64_t size() const { return size_; }
+    [[nodiscard]] T* data() { return data_; }
+    [[nodiscard]] const T* data() const { return data_; }
+    [[nodiscard]] int64_t size() const { return size_; }
     T& operator[](int64_t i) { return data_[i]; }
     const T& operator[](int64_t i) const { return data_[i]; }
 private:
@@ -48,18 +47,18 @@ private:
 // deep_copy
 template <typename T>
 void deep_copy(DeviceBuffer<T>& dest, const T* hostSrc, int64_t n) {
-    for (int64_t i = 0; i < n; ++i) dest[i] = hostSrc[i];
+    for (int64_t i = 0; i < n; ++i) { dest[i] = hostSrc[i]; }
 }
 
 template <typename T>
 void deep_copy(T* hostDest, const DeviceBuffer<T>& src, int64_t n) {
-    for (int64_t i = 0; i < n; ++i) hostDest[i] = src[i];
+    for (int64_t i = 0; i < n; ++i) { hostDest[i] = src[i]; }
 }
 
 // fill_buffer
 template <typename T>
 void fill_buffer(DeviceBuffer<T>& buf, T value) {
-    for (int64_t i = 0; i < buf.size(); ++i) buf[i] = value;
+    for (int64_t i = 0; i < buf.size(); ++i) { buf[i] = value; }
 }
 
 // fence
@@ -69,7 +68,7 @@ inline void fence() {
 
 // atomic_add
 template <typename Acc, typename T>
-inline void atomic_add(const Acc&, T* ptr, T val) {
+inline void atomic_add(const Acc& /*acc*/, T* ptr, T val) {
     *ptr += val;
 }
 
@@ -89,7 +88,6 @@ void grid_stride_reduce(int64_t nWork, const WorkFunctor& work, T& result1, T& r
     }
 }
 
-} // namespace serial_impl
-} // namespace phirst
+} // namespace phirst::serial_impl
 
 #endif // PHIRST_PARALLEL_SERIAL_HPP

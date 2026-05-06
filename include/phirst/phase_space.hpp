@@ -73,7 +73,7 @@ struct RamboAlgorithm {
         nMassive = 0;
         for (int i = 0; i < nParticles; ++i) {
             massSq[i] = masses[i] * masses[i];
-            if (masses[i] != 0.0) nMassive++;
+            if (masses[i] != 0.0) { nMassive++; }
             totalMass += math::fabs(masses[i]);
         }
         totalMassSq = totalMass * totalMass;
@@ -98,9 +98,9 @@ struct RamboAlgorithm {
                                               double tol, int maxIter, ClampType clamp) -> int {
         for (int iter = 0; iter <= maxIter; ++iter) {
             double fVal = f(x);
-            if (math::fabs(fVal) <= tol) return iter;
+            if (math::fabs(fVal) <= tol) { return iter; }
             double dfVal = df(x);
-            if (dfVal == 0.0) return maxIter + 1;
+            if (dfVal == 0.0) { return maxIter + 1; }
             x = x - fVal / dfVal;
             clamp(x);
         }
@@ -134,20 +134,21 @@ public:
         double totalMom[4];
         double boostVec[3];
 
-        if (nParticles < 1 || nParticles > 10) return 0.0;
+        if (nParticles < 1 || nParticles > 10) { return 0.0; }
 
         for (int i = 0; i < nParticles; ++i) {
-            double cosTheta = 2.0 * r[4 * i] - 1.0;
+            const auto base = static_cast<int64_t>(4) * i;
+            double cosTheta = 2.0 * r[base] - 1.0;
             double sinTheta = math::sqrt(1.0 - cosTheta * cosTheta);
-            double phi = math::twoPi * r[4 * i + 1];
+            double phi = math::twoPi * r[base + 1];
     
-            q[i][0] = -math::log(r[4 * i + 2] * r[4 * i + 3]);
+            q[i][0] = -math::log(r[base + 2] * r[base + 3]);
             q[i][3] = q[i][0] * cosTheta;
             q[i][2] = q[i][0] * sinTheta * math::cos(phi);
             q[i][1] = q[i][0] * sinTheta * math::sin(phi);
         }
 
-        for (int mu = 0; mu < 4; ++mu) totalMom[mu] = 0.0;
+        for (int mu = 0; mu < 4; ++mu) { totalMom[mu] = 0.0; }
         for (int i = 0; i < nParticles; ++i) {
             for (int mu = 0; mu < 4; ++mu) {
                 totalMom[mu] += q[i][mu];
@@ -325,7 +326,7 @@ struct RamboDietAlgorithm {
         nMassive = 0;
         for (int i = 0; i < nParticles; ++i) {
             massSq[i] = masses[i] * masses[i];
-            if (masses[i] != 0.0) nMassive++;
+            if (masses[i] != 0.0) { nMassive++; }
             totalMass += math::fabs(masses[i]);
         }
         totalMassSq = totalMass * totalMass;
@@ -340,9 +341,9 @@ struct RamboDietAlgorithm {
                                               double tol, int maxIter, ClampType clamp) -> int {
         for (int iter = 0; iter <= maxIter; ++iter) {
             double fVal = f(x);
-            if (math::fabs(fVal) <= tol) return iter;
+            if (math::fabs(fVal) <= tol) { return iter; }
             double dfVal = df(x);
-            if (dfVal == 0.0) return maxIter + 1;
+            if (dfVal == 0.0) { return maxIter + 1; }
             x = x - fVal / dfVal;
             clamp(x);
         }
@@ -366,7 +367,7 @@ public:
     PHIRST_HOST_DEVICE
     static auto boost(double p[4], const double* boostVec) -> void {
         double b2 = boostVec[0]*boostVec[0] + boostVec[1]*boostVec[1] + boostVec[2]*boostVec[2];
-        if (b2 >= 1.0 || b2 <= 0.0) return; // Invalid boost; leave 'p' unchanged.
+        if (b2 >= 1.0 || b2 <= 0.0) { return; }
         double gamma = 1.0 / math::sqrt(1.0 - b2);
         double bDotP = boostVec[0]*p[1] + boostVec[1]*p[2] + boostVec[2]*p[3];
         double factor = (gamma - 1.0) * bDotP / b2 - gamma * p[0];
@@ -405,8 +406,8 @@ public:
 
         // Clamp to valid range (0, 1)
         auto clampU = [](double& u) {
-            if (u <= 0.0) u = 1e-12;
-            if (u >= 1.0) u = 1.0 - 1e-12;
+            if (u <= 0.0) { u = 1e-12; }
+            if (u >= 1.0) { u = 1.0 - 1e-12; }
         };
         clampU(u);
 
@@ -427,7 +428,7 @@ public:
     PHIRST_HOST_DEVICE
     auto generate(double cmEnergy, const double r[3 * nParticles - 4], 
                                     double momenta[nParticles][4]) const -> double {
-        if (totalMass > cmEnergy) return -std::numeric_limits<double>::infinity();
+        if (totalMass > cmEnergy) { return -std::numeric_limits<double>::infinity(); }
 
         double p[nParticles][4];
 
