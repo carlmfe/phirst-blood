@@ -5,8 +5,10 @@
 # Runs existing ex_drell_yan_<backend> and ex_eggholder_<backend> executables (no builds performed).
 #
 # Usage: ./benchmark.sh [num_events] [seed] [num_runs] [--test all|drell-yan|eggholder] [--mode all|vegas|flat]
+#                       [--check] [--sigma N]
 #        ./benchmark.sh             # Default: 10M events, seed 5489, 3 runs, all tests, all modes
 #        ./benchmark.sh 1000000 5489 3 --test eggholder --mode vegas
+#        ./benchmark.sh --check --sigma 3   # Exit with error if backends differ by >3σ or >5x throughput gap
 #
 # Notes:
 #  - This script does NOT build the project. It searches for executables named
@@ -19,6 +21,8 @@
 #   --help, -h      Show this help message
 #   --test <name>   Which test to run: 'all', 'drell-yan', or 'eggholder' (default: all)
 #   --mode <name>   Which integration mode to run: 'all', 'vegas', or 'flat' (default: all)
+#   --check         Exit with code 1 if any consistency check fails (for CI use)
+#   --sigma N       Sigma threshold for physics result comparison (default: 5)
 #
 # Examples (to build manually):
 #   cmake -DPHIRST_BACKEND=CUDA  -S . -B build-cuda && cmake --build build-cuda
@@ -36,6 +40,8 @@ FORCE_BUILD=false
 POSITIONAL_ARGS=()
 TEST_NAME="all"
 MODE_NAME="all"
+CHECK_RESULTS=false  # --check: exit 1 if consistency checks fail
+NSIGMA=5             # --sigma N: sigma threshold for physics result comparison
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -55,8 +61,16 @@ while [[ $# -gt 0 ]]; do
             MODE_NAME="$2"
             shift 2
             ;;
+        --check)
+            CHECK_RESULTS=true
+            shift
+            ;;
+        --sigma)
+            NSIGMA="$2"
+            shift 2
+            ;;
         --help|-h)
-            head -28 "$0" | tail -26
+            head -33 "$0" | tail -31
             exit 0
             ;;
         *)
@@ -118,13 +132,17 @@ run_benchmark() {
     local min_throughput=999999999999
     local max_throughput=0
     local throughputs=()
+    local last_mean=""
+    local last_err=""
     
     for ((i=1; i<=runs; i++)); do
         # Run and capture output
         output=$("$executable" "$NUM_EVENTS" "$SEED" "$mode_flag" 2>&1)
         
-        # Extract throughput (events/sec)
+        # Extract throughput and physics result
         throughput=$(echo "$output" | grep "Throughput:" | tail -1 | awk '{print $2}')
+        mean_val=$(echo "$output" | grep "^  Mean:" | tail -1 | awk '{print $2}')
+        err_val=$(echo "$output" | grep "^  Error:" | tail -1 | awk '{print $2}')
         
         if [ -n "$throughput" ]; then
             throughputs+=($throughput)
@@ -140,7 +158,10 @@ run_benchmark() {
                 max_throughput=$throughput_dec
             fi
             
-            echo -e "  Run $i: ${throughput} events/sec"
+            result_str=""
+            [ -n "$mean_val" ] && result_str=" | Mean: ${mean_val} ± ${err_val}"
+            echo -e "  Run $i: ${throughput} events/sec${result_str}"
+            [ -n "$mean_val" ] && last_mean="$mean_val" && last_err="$err_val"
         else
             echo -e "  ${RED}Run $i: Failed to extract throughput${NC}"
         fi
@@ -156,6 +177,8 @@ run_benchmark() {
         eval "${var_prefix}_AVG=$avg_throughput"
         eval "${var_prefix}_MIN=$min_throughput"
         eval "${var_prefix}_MAX=$max_throughput"
+        [ -n "$last_mean" ] && eval "${var_prefix}_MEAN=$last_mean"
+        [ -n "$last_err"  ] && eval "${var_prefix}_ERR=$last_err"
     fi
     
     echo ""
@@ -174,6 +197,97 @@ verify_gpu() {
         echo -e "${YELLOW}Warning: check_gpu.sh not found${NC}"
     fi
     echo ""
+}
+
+# Check cross-backend consistency in physics results and throughput.
+# Compares all pairs of backends that produced results using pairwise sigma,
+# and flags GPU backends that appear suspiciously slow (possible CPU fallback).
+consistency_check() {
+    local t=$1
+    local m=$2
+    local t_upper=$(echo "$t" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+    local m_upper=$(echo "$m" | tr '[:lower:]' '[:upper:]')
+    local mode_str="VEGAS"; [ "$m" == "flat" ] && mode_str="Flat MC"
+    local fail=false
+    local has_data=false
+
+    echo -e "${CYAN}--- Consistency: ${t} [${mode_str}] ---${NC}"
+
+    # Collect backends that produced a physics result (mean ± error)
+    local backends_with_mean=()
+    for b in "${BACKENDS[@]}"; do
+        meanval=$(eval echo "\${${t_upper}_${m_upper}_${b}_MEAN}")
+        [ -n "$meanval" ] && backends_with_mean+=("$b")
+    done
+
+    if [ ${#backends_with_mean[@]} -ge 2 ]; then
+        has_data=true
+        echo "Physics results (mean ± error):"
+        for b in "${backends_with_mean[@]}"; do
+            printf "  %-8s: %s ± %s\n" \
+                "$b" \
+                "$(eval echo "\${${t_upper}_${m_upper}_${b}_MEAN}")" \
+                "$(eval echo "\${${t_upper}_${m_upper}_${b}_ERR}")"
+        done
+        echo ""
+
+        echo "Pairwise sigma (|ΔMean| / √(err₁²+err₂²), threshold: ${NSIGMA}σ):"
+        for ((i=0; i<${#backends_with_mean[@]}; i++)); do
+            for ((j=i+1; j<${#backends_with_mean[@]}; j++)); do
+                local ba="${backends_with_mean[$i]}"
+                local bb="${backends_with_mean[$j]}"
+                local ma=$(eval echo "\${${t_upper}_${m_upper}_${ba}_MEAN}")
+                local ea=$(eval echo "\${${t_upper}_${m_upper}_${ba}_ERR}")
+                local mb=$(eval echo "\${${t_upper}_${m_upper}_${bb}_MEAN}")
+                local eb=$(eval echo "\${${t_upper}_${m_upper}_${bb}_ERR}")
+                sigma=$(awk -v m1="$ma" -v e1="$ea" -v m2="$mb" -v e2="$eb" 'BEGIN {
+                    if (e1+0==0 || e2+0==0) { print "N/A"; exit }
+                    diff = (m1>m2) ? m1-m2 : m2-m1
+                    printf "%.1f", diff / sqrt(e1*e1 + e2*e2)
+                }')
+                if [ "$sigma" == "N/A" ]; then
+                    echo -e "  ${YELLOW}$ba vs $bb: N/A (zero error)${NC}"
+                elif awk -v s="$sigma" -v t="$NSIGMA" 'BEGIN{exit !(s+0>t+0)}'; then
+                    echo -e "  ${RED}✗ $ba vs $bb: ${sigma}σ — exceeds ${NSIGMA}σ threshold${NC}"
+                    fail=true
+                else
+                    echo -e "  ${GREEN}✓ $ba vs $bb: ${sigma}σ${NC}"
+                fi
+            done
+        done
+        echo ""
+    fi
+
+    # Throughput outlier check: flag non-SERIAL backends below 20% of the fastest GPU
+    local max_gpu_tp=0
+    for b in "${BACKENDS[@]}"; do
+        [ "$b" == "SERIAL" ] && continue
+        avg=$(eval echo "\${${t_upper}_${m_upper}_${b}_AVG:-0}")
+        [ "${avg:-0}" -gt "$max_gpu_tp" ] 2>/dev/null && max_gpu_tp="${avg:-0}"
+    done
+
+    if [ "$max_gpu_tp" -gt 0 ]; then
+        has_data=true
+        echo "Throughput outlier check (GPU backends, threshold: 20% of fastest):"
+        for b in "${BACKENDS[@]}"; do
+            [ "$b" == "SERIAL" ] && continue
+            [ "$(eval echo "\${${t_upper}_${m_upper}_${b}_OK}")" != "true" ] && continue
+            avg=$(eval echo "\${${t_upper}_${m_upper}_${b}_AVG:-0}")
+            [ "${avg:-0}" -eq 0 ] && continue
+            pct=$(awk -v a="$avg" -v m="$max_gpu_tp" 'BEGIN{printf "%.0f", a*100/m}')
+            if [ "$pct" -lt 20 ]; then
+                echo -e "  ${RED}✗ $b: ${pct}% of fastest GPU — possible CPU fallback?${NC}"
+                fail=true
+            else
+                echo -e "  ${GREEN}✓ $b: ${pct}%${NC}"
+            fi
+        done
+        echo ""
+    fi
+
+    $has_data || echo -e "${YELLOW}  No data available for consistency check.${NC}"
+    $fail && return 1
+    return 0
 }
 
 echo -e "${CYAN}========================================${NC}"
@@ -211,7 +325,7 @@ locate_executable() {
     return 1
 }
 
-BACKENDS=(SERIAL KOKKOS ALPAKA CUDA SYCL)
+BACKENDS=(SERIAL KOKKOS ALPAKA CUDA SYCL HIP)
 TESTS_TO_RUN=()
 MODES_TO_RUN=()
 
@@ -238,6 +352,8 @@ for t in "${TESTS_TO_RUN[@]}"; do
             eval "${t_upper}_${m_upper}_${b}_OK=false"
             eval "${t_upper}_${m_upper}_${b}_EXE=\"\""
             eval "${t_upper}_${m_upper}_${b}_AVG=0"
+            eval "${t_upper}_${m_upper}_${b}_MEAN=\"\""
+            eval "${t_upper}_${m_upper}_${b}_ERR=\"\""
         done
     done
 done
@@ -365,6 +481,26 @@ for t in "${TESTS_TO_RUN[@]}"; do
         echo ""
     done
 done
+
+echo -e "${CYAN}========================================${NC}"
+echo -e "${CYAN}Phase 3: Cross-backend Consistency${NC}"
+echo -e "${CYAN}========================================${NC}"
+echo ""
+echo -e "Physics sigma threshold: ${YELLOW}${NSIGMA}σ${NC} | Throughput outlier threshold: ${YELLOW}20%${NC} of fastest GPU"
+echo ""
+
+CONSISTENCY_FAILED=false
+for t in "${TESTS_TO_RUN[@]}"; do
+    for m in "${MODES_TO_RUN[@]}"; do
+        consistency_check "$t" "$m" || CONSISTENCY_FAILED=true
+    done
+done
+
+if $CONSISTENCY_FAILED; then
+    echo -e "${YELLOW}⚠ Some consistency checks flagged issues — review warnings above.${NC}"
+    $CHECK_RESULTS && { echo -e "${RED}Exiting with error (--check mode).${NC}"; exit 1; }
+fi
+echo ""
 
 echo -e "${CYAN}======================================${NC}"
 echo -e "${CYAN}Benchmark complete.${NC}"
