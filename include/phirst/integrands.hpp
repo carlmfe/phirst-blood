@@ -35,13 +35,13 @@ struct EggholderIntegrand {
 
     PHIRST_HOST_DEVICE
     auto evaluate(const HEPUtils::P4 momenta[]) const -> double {
-        const HEPUtils::P4 d12 = momenta[0] - momenta[1];
-        const HEPUtils::P4 d13 = momenta[0] - momenta[2];
-        const HEPUtils::P4 d23 = momenta[1] - momenta[2];
-
-        double s12 = d12.dot(d12);
-        double s13 = d13.dot(d13);
-        double s23 = d23.dot(d23);
+        // Compute Lorentz invariants directly as s_ij = m_i^2 + m_j^2 - 2*p_i·p_j.
+        // Do NOT use P4 subtraction: operator-= clamps the mass of space-like
+        // differences to 0, turning the real negative invariant into floating-point
+        // noise that gets amplified by the large phase-space weight.
+        double s12 = momenta[0].m2() + momenta[1].m2() - 2.0 * momenta[0].dot(momenta[1]);
+        double s13 = momenta[0].m2() + momenta[2].m2() - 2.0 * momenta[0].dot(momenta[2]);
+        double s23 = momenta[1].m2() + momenta[2].m2() - 2.0 * momenta[1].dot(momenta[2]);
 
         const double arg1 = math::fabs((s12 - s23) / lambdaSquared);
         const double arg2 = math::fabs(s13 / lambdaSquared);
