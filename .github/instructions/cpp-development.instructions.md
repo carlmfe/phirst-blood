@@ -330,13 +330,17 @@ numerical consistency.
 ## Code Style
 
 ### Enforced Tools
+
+> **MANDATORY**: Every source edit to `include/phirst/` or `examples/` **must** be
+> followed by a clean clang-tidy run before `git commit`. No exceptions.
+
 - **clang-format**: run `clang-format -i` on all modified `.hpp`/`.cpp` files before commit
-- **clang-tidy**: run with the project's `.clang-tidy` config:
+- **clang-tidy**: run after every edit, fix all warnings, then commit:
   ```bash
   clang-tidy -p build-serial examples/drell_yan.cpp examples/eggholder.cpp
   ```
   The serial build's `compile_commands.json` is the reference — GPU backends require
-  framework headers that clang-tidy cannot parse. Fix all warnings before committing.
+  framework headers that clang-tidy cannot parse.
 
 ### Naming Conventions (from existing code)
 - Types / classes: `PascalCase` (`RamboIntegrator`, `MCWorkFunctor`)
