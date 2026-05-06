@@ -148,6 +148,8 @@ architectures:
     class: hpc
     runner_requirement: self-hosted-amd
     backends:
+      hip:
+        arch: "gfx908"
       kokkos:
         arch: "AMD_GFX908"
         note: "Requires Kokkos built with HIP (Kokkos_ENABLE_HIP + Kokkos_ARCH_AMD_GFX908)"
@@ -165,6 +167,8 @@ architectures:
     class: hpc
     runner_requirement: self-hosted-amd
     backends:
+      hip:
+        arch: "gfx90a"
       kokkos:
         arch: "AMD_GFX90A"
         note: "Requires Kokkos built with HIP (Kokkos_ENABLE_HIP + Kokkos_ARCH_AMD_GFX90A)"
@@ -179,6 +183,8 @@ architectures:
     class: hpc
     runner_requirement: self-hosted-amd
     backends:
+      hip:
+        arch: "gfx942"
       kokkos:
         arch: "AMD_GFX942"
         note: "Requires Kokkos built with HIP (Kokkos_ENABLE_HIP + Kokkos_ARCH_AMD_GFX942)"
@@ -193,6 +199,8 @@ architectures:
     class: desktop
     runner_requirement: self-hosted-amd
     backends:
+      hip:
+        arch: "gfx1100"
       sycl:
         backend: AMD
         arch: "gfx1100"

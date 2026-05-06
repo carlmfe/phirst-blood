@@ -26,6 +26,7 @@ architectures. Find them in `.github/workflows/compile-check-*.yml`.
 | `compile-check-alpaka.yml` | Alpaka/CUDA | All NVIDIA archs (sm_70 – sm_90) |
 | `compile-check-sycl.yml` | SYCL/CUDA | All NVIDIA archs (sm_70 – sm_90) |
 | `compile-check-kokkos.yml` | Kokkos | Single build (arch baked into module) |
+| `compile-check-hip.yml` | HIP | All AMD archs (disabled — no runner yet) |
 
 AMD and Intel architectures are defined in `architectures.yml` but their CI steps
 are not yet active because:
