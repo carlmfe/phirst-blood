@@ -1,0 +1,55 @@
+#include <gtest/gtest.h>
+
+#include "phirst/phirst.hpp"
+
+using namespace phirst;
+
+TEST(Integrands, Constant) {
+    ConstantIntegrand c(4.2);
+    HEPUtils::P4 mom[1];
+    EXPECT_DOUBLE_EQ(c.evaluate(mom), 4.2);
+}
+
+TEST(Integrands, EggholderZeroForIdenticalMomenta) {
+    EggholderIntegrand e(1e6);
+    HEPUtils::P4 mom[3];
+    mom[0] = HEPUtils::P4::mkXYZM(0.0, 0.0, 0.0, 0.0);
+    mom[1] = mom[0];
+    mom[2] = mom[0];
+    double val = e.evaluate(mom);
+    EXPECT_NEAR(val, 0.0, 1e-12);
+}
+
+TEST(Integrands, MandelstamSWorks) {
+    const int NP = 2;
+    HEPUtils::P4 mom[NP];
+    mom[0] = HEPUtils::P4::mkXYZE(1.0, 0.0, 0.0, 2.0); // E consistent with p
+    mom[1] = HEPUtils::P4::mkXYZE(0.0, 2.0, 0.0, 3.0);
+
+    MandelstamSIntegrand<NP> msi(1.0);
+    double s_over_scale = msi.evaluate(mom);
+
+    HEPUtils::P4 P = mom[0] + mom[1];
+    double expected = P.dot(P) / 1.0;
+    EXPECT_NEAR(s_over_scale, expected, 1e-12);
+}
+
+TEST(Integrands, DrellYanAnalyticAndEvaluate) {
+    double s = 100.0;
+    double eq = 2.0 / 3.0;
+    double alpha = 1.0 / 137.035999;
+
+    double analytic = DrellYanIntegrand::analyticCrossSection(s, eq, alpha);
+    // recompute manually for sanity
+    constexpr double hbarc2 = 0.3893793656;
+    double expected = 4.0 * math::pi * alpha * alpha * eq * eq / (3.0 * s) * hbarc2;
+    EXPECT_NEAR(analytic, expected, 1e-15);
+
+    // Evaluate at a simple kinematic point (should be finite and non-negative)
+    DrellYanIntegrand dyn(eq, alpha);
+    HEPUtils::P4 k1 = HEPUtils::P4::mkXYZE(0.0, 0.0, +5.0, 5.0);
+    HEPUtils::P4 k2 = HEPUtils::P4::mkXYZE(0.0, 0.0, -5.0, 5.0);
+    HEPUtils::P4 mom[2] = {k1, k2};
+    double val = dyn.evaluate(mom);
+    EXPECT_TRUE(std::isfinite(val));
+}
