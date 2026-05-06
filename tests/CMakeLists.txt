@@ -14,7 +14,13 @@ if(NOT GTest_FOUND)
     FetchContent_MakeAvailable(googletest)
 endif()
 
-add_executable(test_phirst test_phirst.cpp test_integrator.cpp test_integrands.cpp)
+add_executable(test_phirst
+    test_phirst.cpp
+    test_integrator.cpp
+    test_integrands.cpp
+    test_phase_space.cpp
+    test_vegas.cpp
+)
 # Use CMAKE_CURRENT_SOURCE_DIR so paths are correct both as standalone project
 # (cmake -S tests) and as an add_subdirectory() call from the root.
 target_include_directories(test_phirst PRIVATE

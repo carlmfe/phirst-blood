@@ -89,3 +89,38 @@ TEST(RamboIntegrator, MatchesDirectSampling) {
     EXPECT_NEAR(mean_int, mean_direct, 1e-12);
     EXPECT_NEAR(err_int, err_direct, 1e-12);
 }
+
+TEST(IntegrationResult, ZeroEventsIsNoOp) {
+    IntegrationResult r;
+    r.nEvents = 0;
+    r.sum = 999.0;   // should be ignored
+    r.sum2 = 999.0;
+    r.computeStatistics();
+    // mean and error remain at their default 0.0
+    EXPECT_DOUBLE_EQ(r.mean, 0.0);
+    EXPECT_DOUBLE_EQ(r.error, 0.0);
+}
+
+TEST(IntegrationResult, IdenticalValuesGiveZeroError) {
+    // All 100 samples equal 3.5 → variance = 0 → error = 0
+    IntegrationResult r;
+    r.nEvents = 100;
+    r.sum  = 100 * 3.5;
+    r.sum2 = 100 * 3.5 * 3.5;
+    r.computeStatistics();
+    EXPECT_NEAR(r.mean, 3.5, 1e-12);
+    EXPECT_NEAR(r.error, 0.0, 1e-12);
+}
+
+TEST(IntegrationResult, NegativeVarianceClamped) {
+    // Arrange sum/sum2 so that floating-point cancellation yields a tiny negative variance.
+    // mean = 1.5, N*mean^2 = 4.5; set sum2 just below 4.5 so variance ≈ -epsilon.
+    IntegrationResult r;
+    r.nEvents = 2;
+    r.sum  = 3.0;
+    r.sum2 = 4.5 - 1e-14;
+    r.computeStatistics();
+    // fabs(variance) prevents sqrt from receiving a negative argument
+    EXPECT_TRUE(std::isfinite(r.error));
+    EXPECT_GE(r.error, 0.0);
+}

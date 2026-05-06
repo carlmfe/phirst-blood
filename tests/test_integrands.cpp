@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
 #include "phirst/phirst.hpp"
+#include "phirst/phase_space.hpp"
+#include "phirst/backend/random.hpp"
 
 using namespace phirst;
 
@@ -52,4 +54,38 @@ TEST(Integrands, DrellYanAnalyticAndEvaluate) {
     HEPUtils::P4 mom[2] = {k1, k2};
     double val = dyn.evaluate(mom);
     EXPECT_TRUE(std::isfinite(val));
+}
+
+TEST(Integrands, EggholderWithRealisticMomenta) {
+    // Generate two distinct 3-particle phase-space points and verify finite, differing results.
+    constexpr int NP = 3;
+    double masses[NP] = {0.0, 0.0, 0.0};
+    double cmEnergy = 200.0;
+
+    RamboAlgorithm<NP> algo(masses);
+
+    // Point A
+    uint64_t rngA = initRngState(5489ULL, 42);
+    double momA[NP][4];
+    algo.generate(cmEnergy, rngA, momA);
+    HEPUtils::P4 p4A[NP];
+    for (int i = 0; i < NP; ++i)
+        p4A[i] = HEPUtils::P4::mkXYZM(momA[i][1], momA[i][2], momA[i][3], 0.0);
+
+    // Point B (different seed)
+    uint64_t rngB = initRngState(12345ULL, 7);
+    double momB[NP][4];
+    algo.generate(cmEnergy, rngB, momB);
+    HEPUtils::P4 p4B[NP];
+    for (int i = 0; i < NP; ++i)
+        p4B[i] = HEPUtils::P4::mkXYZM(momB[i][1], momB[i][2], momB[i][3], 0.0);
+
+    EggholderIntegrand e(1e6);
+    double valA = e.evaluate(p4A);
+    double valB = e.evaluate(p4B);
+
+    EXPECT_TRUE(std::isfinite(valA));
+    EXPECT_TRUE(std::isfinite(valB));
+    // Two random phase-space points give different integrand values
+    EXPECT_NE(valA, valB);
 }
