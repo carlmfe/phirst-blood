@@ -648,6 +648,8 @@ write_basic_package_version_file(
 install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/phirstConfig.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/phirstConfigVersion.cmake
+    cmake/PhirstIntegrand.cmake
+    cmake/integrand_wrapper_template.cpp.in
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/phirst
 )
 
