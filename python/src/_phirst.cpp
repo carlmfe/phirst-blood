@@ -5,8 +5,10 @@
 #include <phirst/phirst.hpp>
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
+#include <nanobind/stl/pair.h>
 #include <nanobind/stl/string.h>
 
+#include <cmath>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
@@ -15,6 +17,127 @@ namespace nb = nanobind;
 using namespace phirst;
 
 namespace {
+
+template <int N>
+std::pair<nb::ndarray<nb::numpy, double>, nb::ndarray<nb::numpy, double>> generate_phase_space_impl(
+    double cmEnergy,
+    const nb::ndarray<const double, nb::numpy, nb::shape<-1>, nb::c_contig>& massesArr,
+    int64_t nEvents,
+    uint64_t seed) {
+    if (massesArr.ndim() != 1 || static_cast<int>(massesArr.shape(0)) != N) {
+        throw std::invalid_argument("masses must be a 1D float64 array with length matching n_particles");
+    }
+    if (nEvents < 0) {
+        throw std::invalid_argument("n_events must be non-negative");
+    }
+
+    double masses[N] = {};
+    auto massesView = massesArr.view();
+    for (int i = 0; i < N; ++i) {
+        masses[i] = massesView(i);
+    }
+
+    auto* momData = new double[static_cast<size_t>(nEvents) * N * 4];
+    auto* wgtData = new double[static_cast<size_t>(nEvents)];
+
+    nb::capsule momOwner(momData, [](void* p) noexcept { delete[] static_cast<double*>(p); });
+    nb::capsule wgtOwner(wgtData, [](void* p) noexcept { delete[] static_cast<double*>(p); });
+
+    PhaseSpaceGenerator<N> gen(masses);
+    {
+        nb::gil_scoped_release release;
+        for (int64_t ev = 0; ev < nEvents; ++ev) {
+            uint64_t rng = initRngState(seed, ev);
+            double momenta[N][4];
+            double logW = gen(cmEnergy, rng, momenta);
+            wgtData[ev] = std::exp(logW);
+            for (int i = 0; i < N; ++i) {
+                for (int mu = 0; mu < 4; ++mu) {
+                    momData[(ev * N + i) * 4 + mu] = momenta[i][mu];
+                }
+            }
+        }
+    }
+
+    size_t momShape[3] = {static_cast<size_t>(nEvents), static_cast<size_t>(N), 4};
+    size_t wgtShape[1] = {static_cast<size_t>(nEvents)};
+
+    nb::ndarray<nb::numpy, double> momArr(momData, 3, momShape, momOwner);
+    nb::ndarray<nb::numpy, double> wgtArr(wgtData, 1, wgtShape, wgtOwner);
+    return {momArr, wgtArr};
+}
+
+template <int N>
+IntegrationResult integrate_callback_impl(
+    nb::object callback,
+    double cmEnergy,
+    const nb::ndarray<const double, nb::numpy, nb::shape<-1>, nb::c_contig>& massesArr,
+    int64_t nEvents,
+    uint64_t seed) {
+    if (massesArr.ndim() != 1 || static_cast<int>(massesArr.shape(0)) != N) {
+        throw std::invalid_argument("masses must be a 1D float64 array with length matching n_particles");
+    }
+    if (nEvents < 0) {
+        throw std::invalid_argument("n_events must be non-negative");
+    }
+
+    double masses[N] = {};
+    auto massesView = massesArr.view();
+    for (int i = 0; i < N; ++i) {
+        masses[i] = massesView(i);
+    }
+
+    auto* momData = new double[static_cast<size_t>(nEvents) * N * 4];
+    auto* wgtData = new double[static_cast<size_t>(nEvents)];
+    nb::capsule momOwner(momData, [](void* p) noexcept { delete[] static_cast<double*>(p); });
+
+    PhaseSpaceGenerator<N> gen(masses);
+    {
+        nb::gil_scoped_release release;
+        for (int64_t ev = 0; ev < nEvents; ++ev) {
+            uint64_t rng = initRngState(seed, ev);
+            double momenta[N][4];
+            double logW = gen(cmEnergy, rng, momenta);
+            wgtData[ev] = std::exp(logW);
+            for (int i = 0; i < N; ++i) {
+                for (int mu = 0; mu < 4; ++mu) {
+                    momData[(ev * N + i) * 4 + mu] = momenta[i][mu];
+                }
+            }
+        }
+    }
+
+    size_t momShape[3] = {static_cast<size_t>(nEvents), static_cast<size_t>(N), 4};
+    nb::ndarray<nb::numpy, double> momArr(momData, 3, momShape, momOwner);
+
+    nb::object result = callback(momArr);
+    auto valArr = nb::cast<nb::ndarray<const double, nb::numpy, nb::shape<-1>, nb::c_contig>>(result);
+    if (valArr.ndim() != 1 || static_cast<int64_t>(valArr.shape(0)) != nEvents) {
+        delete[] wgtData;
+        throw std::invalid_argument("integrand callable must return shape (n_events,)");
+    }
+
+    double sum = 0.0;
+    double sum2 = 0.0;
+    {
+        nb::gil_scoped_release release;
+        auto values = valArr.view();
+        for (int64_t ev = 0; ev < nEvents; ++ev) {
+            double weighted = wgtData[ev] * values(ev);
+            sum += weighted;
+            sum2 += weighted * weighted;
+        }
+    }
+
+    delete[] wgtData;
+
+    IntegrationResult res;
+    res.sum = sum;
+    res.sum2 = sum2;
+    res.nEvents = nEvents;
+    res.computeStatistics();
+    return res;
+}
 
 template <typename Integrand, int N>
 IntegrationResult run_for_n(const Integrand& integ,
@@ -194,4 +317,62 @@ NB_MODULE(_phirst, m) {
     bind_mandelstam_dispatcher<4>(m, "_integrate_mandelstam4");
     bind_mandelstam_dispatcher<5>(m, "_integrate_mandelstam5");
     bind_mandelstam_dispatcher<6>(m, "_integrate_mandelstam6");
+
+    m.def(
+        "_generate_phase_space",
+        [](int nParticles,
+           double cmEnergy,
+           const nb::ndarray<const double, nb::numpy, nb::shape<-1>, nb::c_contig>& masses,
+           int64_t nEvents,
+           uint64_t seed) {
+            switch (nParticles) {
+                case 2:
+                    return generate_phase_space_impl<2>(cmEnergy, masses, nEvents, seed);
+                case 3:
+                    return generate_phase_space_impl<3>(cmEnergy, masses, nEvents, seed);
+                case 4:
+                    return generate_phase_space_impl<4>(cmEnergy, masses, nEvents, seed);
+                case 5:
+                    return generate_phase_space_impl<5>(cmEnergy, masses, nEvents, seed);
+                case 6:
+                    return generate_phase_space_impl<6>(cmEnergy, masses, nEvents, seed);
+                default:
+                    throw std::invalid_argument("n_particles must be 2-6");
+            }
+        },
+        nb::arg("n_particles"),
+        nb::arg("cm_energy"),
+        nb::arg("masses"),
+        nb::arg("n_events"),
+        nb::arg("seed"));
+
+    m.def(
+        "_integrate_callback",
+        [](nb::object callback,
+           int nParticles,
+           double cmEnergy,
+           const nb::ndarray<const double, nb::numpy, nb::shape<-1>, nb::c_contig>& masses,
+           int64_t nEvents,
+           uint64_t seed) -> IntegrationResult {
+            switch (nParticles) {
+                case 2:
+                    return integrate_callback_impl<2>(callback, cmEnergy, masses, nEvents, seed);
+                case 3:
+                    return integrate_callback_impl<3>(callback, cmEnergy, masses, nEvents, seed);
+                case 4:
+                    return integrate_callback_impl<4>(callback, cmEnergy, masses, nEvents, seed);
+                case 5:
+                    return integrate_callback_impl<5>(callback, cmEnergy, masses, nEvents, seed);
+                case 6:
+                    return integrate_callback_impl<6>(callback, cmEnergy, masses, nEvents, seed);
+                default:
+                    throw std::invalid_argument("n_particles must be 2-6");
+            }
+        },
+        nb::arg("callable"),
+        nb::arg("n_particles"),
+        nb::arg("cm_energy"),
+        nb::arg("masses"),
+        nb::arg("n_events"),
+        nb::arg("seed"));
 }

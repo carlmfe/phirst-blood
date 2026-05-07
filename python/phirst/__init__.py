@@ -18,6 +18,7 @@ from ._version import __version__
 
 __all__ = [
     "integrate",
+    "generate_phase_space",
     "__version__",
     "IntegrationResult",
     "ConstantIntegrand",
@@ -38,6 +39,32 @@ _MANDELSTAM_N = {
     MandelstamSIntegrand5: 5,
     MandelstamSIntegrand6: 6,
 }
+
+
+def generate_phase_space(*, n_particles, cm_energy, n_events=10_000,
+                         masses=None, seed=5489):
+    """Generate RAMBO phase-space points and weights.
+
+    Returns
+    -------
+    momenta : np.ndarray
+        Shape ``(n_events, n_particles, 4)`` with ``[E, px, py, pz]`` ordering.
+    weights : np.ndarray
+        Shape ``(n_events,)`` containing ``exp(log_weight)`` for each event.
+    """
+    if n_particles not in _SUPPORTED_N:
+        raise ValueError(f"n_particles must be one of {_SUPPORTED_N}, got {n_particles}")
+
+    if masses is None:
+        masses_arr = np.zeros(n_particles, dtype=np.float64)
+    else:
+        masses_arr = np.asarray(masses, dtype=np.float64)
+    if len(masses_arr) != n_particles:
+        raise ValueError(f"masses must have length {n_particles}")
+
+    return _C._generate_phase_space(
+        int(n_particles), float(cm_energy), masses_arr, int(n_events), int(seed)
+    )
 
 
 def integrate(integrand, *, n_particles, cm_energy, n_events=100_000,
@@ -82,6 +109,11 @@ def integrate(integrand, *, n_particles, cm_energy, n_events=100_000,
         return fn(
             integrand, float(cm_energy), masses_arr,
             int(n_events), int(seed), bool(use_vegas)
+        )
+    if callable(integrand):
+        return _C._integrate_callback(
+            integrand, int(n_particles), float(cm_energy), masses_arr,
+            int(n_events), int(seed)
         )
 
     raise TypeError(
