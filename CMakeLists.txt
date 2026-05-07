@@ -217,6 +217,7 @@ else()
 endif()
 option(PHIRST_BUILD_EXAMPLES "Build example executables" ${_phirst_default_examples})
 option(PHIRST_NUMBA_BRIDGE "Build the Numba/cuLink bridge for CUDA Python device integrands" OFF)
+option(SYCL_INTEL_AOT "Enable Intel SYCL AOT compilation (requires ocloc)" OFF)
 
 # Variables for package config template (populated per-backend below)
 set(PHIRST_SYCL_BACKEND "")
@@ -526,12 +527,26 @@ elseif(PHIRST_BACKEND STREQUAL "SYCL")
         set(PHIRST_SYCL_BACKEND "INTEL")
         target_compile_options(phirst_sycl INTERFACE
             -fsycl
-            -fsycl-targets=spir64_gen
         )
         target_link_options(phirst_sycl INTERFACE
             -fsycl
-            -fsycl-targets=spir64_gen
         )
+        if(SYCL_INTEL_AOT)
+            find_program(OCLOC ocloc
+                PATHS /opt/intel/oneapi/compiler/latest/linux/bin $ENV{ONEAPI_ROOT}/compiler/latest/linux/bin)
+            if(NOT OCLOC)
+                message(FATAL_ERROR "SYCL_INTEL_AOT=ON requires the Intel 'ocloc' tool for spir64_gen AOT compilation")
+            endif()
+            message(STATUS "SYCL Intel mode: AOT (spir64_gen)")
+            target_compile_options(phirst_sycl INTERFACE
+                -fsycl-targets=spir64_gen
+            )
+            target_link_options(phirst_sycl INTERFACE
+                -fsycl-targets=spir64_gen
+            )
+        else()
+            message(STATUS "SYCL Intel mode: JIT")
+        endif()
     else()
         message(FATAL_ERROR "Unknown SYCL_BACKEND '${SYCL_BACKEND}'. Valid values: CUDA, INTEL, AMD")
     endif()

@@ -16,11 +16,10 @@ name: Compile Check — SYCL
 #   These steps are kept here (disabled) as a template for when the runner
 #   and CMakeLists.txt support are ready.
 #
-# Intel architectures: NOT YET ACTIVE.
-#   Reasons:
-#     1. No self-hosted-intel runner is available.
-#     2. CMakeLists.txt SYCL/INTEL path emits -fsycl only (JIT); AOT requires
-#        -fsycl-targets=spir64_gen — a C++ Development task.
+# Intel architectures: CI uses JIT compilation by default (-fsycl only).
+#   Optional AOT remains available via -DSYCL_INTEL_AOT=ON when Intel's ocloc
+#   tool is installed. The self-hosted runner's oneapi/2026.0 module does not
+#   currently provide ocloc, so this workflow intentionally leaves AOT disabled.
 #   See deploy/architectures.yml for Intel entries and their notes.
 
 on:
@@ -128,10 +127,9 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Intel — SYCL/Intel backend
-  # Uses JIT compilation (-fsycl only); no Intel GPU required to compile.
-  # Requires: module load oneapi/2025.3 (available on the self-hosted-gpu runner).
-  # Note: AOT compilation (spir64_gen) needs CMakeLists.txt Intel AOT flags
-  # added first (C++ Development task). JIT covers all Intel GPU targets at runtime.
+  # Uses default JIT compilation (-fsycl only); no Intel GPU required to compile.
+  # Requires: module load oneapi/2026.0 (available on the self-hosted-gpu runner).
+  # Optional AOT is available with -DSYCL_INTEL_AOT=ON when ocloc is installed.
   # ---------------------------------------------------------------------------
   compile-check-sycl-intel:
     name: "SYCL/Intel JIT"
@@ -148,6 +146,7 @@ jobs:
             -DSYCL_BACKEND=INTEL \
             -DCMAKE_CXX_COMPILER=icpx \
             -DCMAKE_BUILD_TYPE=Release
+          # Leave SYCL_INTEL_AOT unset so CI uses portable JIT mode.
 
       - name: Build (SYCL/Intel, JIT)
         shell: bash -l {0}
