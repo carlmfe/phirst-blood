@@ -15,3 +15,7 @@ dev = ["pytest", "pytest-cov"]
 [tool.scikit-build]
 cmake.args = ["-DPHIRST_PYTHON_BINDINGS=ON", "-DPHIRST_BACKEND=SERIAL"]
 wheel.packages = ["python/phirst"]
+
+[tool.pytest.ini_options]
+testpaths = ["python/tests"]
+pythonpath = ["."]

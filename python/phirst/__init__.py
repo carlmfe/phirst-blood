@@ -15,6 +15,7 @@ from ._phirst import (
     MandelstamSIntegrand6,
 )
 from ._version import __version__
+from .cpp_integrand import CppIntegrandModule
 
 __all__ = [
     "integrand",
@@ -30,6 +31,8 @@ __all__ = [
     "MandelstamSIntegrand4",
     "MandelstamSIntegrand5",
     "MandelstamSIntegrand6",
+    "CppIntegrandModule",
+    "load_integrand_module",
 ]
 
 _SUPPORTED_N = [2, 3, 4, 5, 6]
@@ -57,6 +60,33 @@ def integrand(n_particles):
             "libphirst_numba_bridge.so. Install numba and build phirst "
             "with PHIRST_NUMBA_BRIDGE=ON."
         ) from e
+
+
+def load_integrand_module(path, *, n_particles):
+    """
+    Load a user-compiled C++ integrand shared library.
+
+    Parameters
+    ----------
+    path : str or Path
+        Path to the shared library built with phirst_add_integrand_module().
+    n_particles : int
+        The compile-time particle count the library was built with.
+
+    Returns
+    -------
+    CppIntegrandModule
+        An integrand object usable with phirst.integrate().
+
+    Example
+    -------
+    >>> mod = phirst.load_integrand_module("libmy_integrand.so", n_particles=2)
+    >>> result = phirst.integrate(mod, n_particles=2, cm_energy=91.2)
+    """
+    from .cpp_integrand import CppIntegrandModule
+    if n_particles not in _SUPPORTED_N:
+        raise ValueError(f"n_particles must be one of {_SUPPORTED_N}, got {n_particles}")
+    return CppIntegrandModule(str(path), n_particles)
 
 
 def generate_phase_space(*, n_particles, cm_energy, n_events=10_000,
@@ -141,6 +171,21 @@ def integrate(integrand, *, n_particles, cm_energy, n_events=100_000,
                 masses=masses_arr,
                 n_events=n_events,
                 seed=seed,
+            )
+    except ImportError:
+        pass
+
+    try:
+        from .cpp_integrand import CppIntegrandModule, run_cpp_integrand
+        if isinstance(integrand, CppIntegrandModule):
+            return run_cpp_integrand(
+                integrand,
+                n_particles=n_particles,
+                cm_energy=cm_energy,
+                masses=masses_arr,
+                n_events=n_events,
+                seed=seed,
+                use_vegas=use_vegas,
             )
     except ImportError:
         pass

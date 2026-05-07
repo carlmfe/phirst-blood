@@ -157,6 +157,43 @@ def my_fn(momenta_flat, n_particles):
 `momenta_flat` is a length `n_particles * 4` flat array laid out as
 `[E0, px0, py0, pz0, E1, px1, py1, pz1, ...]`.
 
+## C++ Extension Integrands
+
+For maximum performance on any backend, write your integrand in C++ and compile it with
+the `phirst_add_integrand_module()` CMake helper:
+
+**`my_integrand.cpp`**:
+```cpp
+struct MyIntegrand {
+    double evaluate(const double momenta[][4]) const {
+        // momenta[i][mu]: i=particle, mu=0:E,1:px,2:py,3:pz
+        double s = 0.0;
+        for (int mu = 0; mu < 4; ++mu) {
+            double tot = momenta[0][mu] + momenta[1][mu];
+            s += (mu == 0 ? 1.0 : -1.0) * tot * tot;
+        }
+        return s;
+    }
+};
+```
+
+**`CMakeLists.txt`**:
+```cmake
+include(PhirstIntegrand)
+phirst_add_integrand_module(
+    NAME my_integrand  SOURCE my_integrand.cpp
+    INTEGRAND_TYPE MyIntegrand  PARTICLES 2  BACKEND SERIAL
+)
+```
+
+**Python**:
+```python
+mod = phirst.load_integrand_module("build/libmy_integrand.so", n_particles=2)
+result = phirst.integrate(mod, n_particles=2, cm_energy=91.2, n_events=1_000_000)
+```
+
+See `examples/custom_integrand/` for a complete working example.
+
 **Constraints**
 
 - `DrellYanIntegrand` requires `n_particles=2`.
