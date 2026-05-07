@@ -9,6 +9,7 @@ set_and_check(PHIRST_INCLUDE_DIR "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@")
 set(_phirst_backend "@PHIRST_BACKEND@")
 set(_phirst_sycl_backend "@PHIRST_SYCL_BACKEND@")
 set(_phirst_sycl_cuda_arch "@PHIRST_SYCL_CUDA_ARCH@")
+set(_phirst_sycl_amd_arch "@PHIRST_SYCL_AMD_ARCH@")
 string(TOLOWER "${_phirst_backend}" _phirst_backend_lower)
 
 # Re-find framework dependencies so transitively linked targets are valid
@@ -50,12 +51,21 @@ if(NOT TARGET "phirst::${_phirst_backend_lower}")
                 INTERFACE_LINK_OPTIONS
                 "-fsycl;-fsycl-targets=nvptx64-nvidia-cuda"
             )
-        else()
+        elseif(_phirst_sycl_backend STREQUAL "AMD")
             set_property(TARGET "phirst::${_phirst_backend_lower}" APPEND PROPERTY
-                INTERFACE_COMPILE_OPTIONS "-fsycl"
+                INTERFACE_COMPILE_OPTIONS
+                "-fsycl;-fsycl-targets=amdgcn-amd-amdhsa;-Xsycl-target-backend;--offload-arch=${_phirst_sycl_amd_arch}"
             )
             set_property(TARGET "phirst::${_phirst_backend_lower}" APPEND PROPERTY
-                INTERFACE_LINK_OPTIONS "-fsycl"
+                INTERFACE_LINK_OPTIONS
+                "-fsycl;-fsycl-targets=amdgcn-amd-amdhsa"
+            )
+        elseif(_phirst_sycl_backend STREQUAL "INTEL")
+            set_property(TARGET "phirst::${_phirst_backend_lower}" APPEND PROPERTY
+                INTERFACE_COMPILE_OPTIONS "-fsycl;-fsycl-targets=spir64_gen"
+            )
+            set_property(TARGET "phirst::${_phirst_backend_lower}" APPEND PROPERTY
+                INTERFACE_LINK_OPTIONS "-fsycl;-fsycl-targets=spir64_gen"
             )
         endif()
     endif()

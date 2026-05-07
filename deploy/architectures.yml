@@ -133,14 +133,14 @@ architectures:
         note: "Arch baked into Kokkos module; see nvidia-v100 note."
 
   # ---------------------------------------------------------------------------
-  # AMD — Kokkos (with HIP) and SYCL/AMD backends
+  # AMD — HIP, Kokkos/HIP, and SYCL/AMD backends
   # Runner: self-hosted-amd — NOT YET AVAILABLE
   #
   # Current CMakeLists.txt status:
+  #   - HIP: full support
   #   - Kokkos/HIP: works if Kokkos was built with HIP (Kokkos_ARCH_AMD_GFXxxx)
-  #   - SYCL/AMD:   AUTO detection sets SYCL_BACKEND=AMD, but the SYCL section
-  #                 only emits "-fsycl" with no AMD-specific target flags.
-  #                 Proper AOT support (amdgcn-amd-amdhsa) needs a C++ Dev task.
+  #   - SYCL/AMD: AOT flags (-fsycl-targets=amdgcn-amd-amdhsa --offload-arch=<gfx>)
+  #               emitted correctly; PHIRST_AMD_GPU_ARCH selects the target arch.
   # ---------------------------------------------------------------------------
 
   - id: amd-mi100
@@ -157,10 +157,6 @@ architectures:
       sycl:
         backend: AMD
         arch: "gfx908"
-        note: >
-          Requires SYCL/AMD AOT flags in CMakeLists.txt
-          (-fsycl-targets=amdgcn-amd-amdhsa -Xsycl-target-backend --offload-arch=gfx908).
-          This is a C++ Development task before this entry can be CI-tested.
 
   - id: amd-mi250
     name: "AMD MI250 / MI250X (CDNA2)"
@@ -176,7 +172,6 @@ architectures:
       sycl:
         backend: AMD
         arch: "gfx90a"
-        note: "See amd-mi100 SYCL note."
 
   - id: amd-mi300x
     name: "AMD MI300X (CDNA3)"
@@ -192,7 +187,6 @@ architectures:
       sycl:
         backend: AMD
         arch: "gfx942"
-        note: "See amd-mi100 SYCL note."
 
   - id: amd-rdna3-desktop
     name: "AMD RX 7900 XT (RDNA3)"
@@ -205,17 +199,14 @@ architectures:
       sycl:
         backend: AMD
         arch: "gfx1100"
-        note: "See amd-mi100 SYCL note."
 
   # ---------------------------------------------------------------------------
   # Intel — SYCL/Intel backend only
   # Runner: self-hosted-intel — NOT YET AVAILABLE
   #
   # Current CMakeLists.txt status:
-  #   SYCL_BACKEND=INTEL falls through to "-fsycl" only (JIT compilation).
-  #   For AOT, the Intel path needs -fsycl-targets=spir64_gen plus ocloc device IDs.
-  #   This is a C++ Development task before per-device AOT testing is possible.
-  #   JIT (-fsycl alone) will work on any SYCL/Intel runner at runtime.
+  #   SYCL_BACKEND=INTEL emits -fsycl -fsycl-targets=spir64_gen (JIT-within-AOT).
+  #   This covers all Intel GPUs at runtime; no per-device ocloc ID is needed.
   # ---------------------------------------------------------------------------
 
   - id: intel-pvc
@@ -227,10 +218,6 @@ architectures:
       sycl:
         backend: INTEL
         arch: "spir64_gen"
-        note: >
-          Requires Intel oneAPI DPC++ compiler.
-          Current CMakeLists.txt emits -fsycl only (JIT); AOT requires
-          -fsycl-targets=spir64_gen and ocloc device IDs — C++ Dev task.
 
   - id: intel-arc-desktop
     name: "Intel Arc A770 (Alchemist)"
@@ -241,4 +228,3 @@ architectures:
       sycl:
         backend: INTEL
         arch: "spir64_gen"
-        note: "See intel-pvc SYCL note."
