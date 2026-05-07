@@ -14,14 +14,15 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Python build/test deps
+      - name: Set up virtual environment
         shell: bash -l {0}
         run: |
-          which uv || true
           if command -v uv >/dev/null 2>&1; then
+            uv venv
             uv pip install scikit-build-core nanobind pytest
           else
-            pip install scikit-build-core nanobind pytest
+            python3 -m venv .venv
+            .venv/bin/pip install scikit-build-core nanobind pytest
           fi
 
       - name: Build Python bindings (Alpaka)
@@ -32,7 +33,7 @@ jobs:
             uv pip install -e . --no-build-isolation \
               -Ccmake.args="-DPHIRST_BACKEND=ALPAKA;-DALPAKA_BACKEND=CUDA;-DPHIRST_GPU_ARCH=89"
           else
-            pip install -e . --no-build-isolation \
+            .venv/bin/pip install -e . --no-build-isolation \
               -Ccmake.args="-DPHIRST_BACKEND=ALPAKA;-DALPAKA_BACKEND=CUDA;-DPHIRST_GPU_ARCH=89"
           fi
 
@@ -40,8 +41,4 @@ jobs:
         shell: bash -l {0}
         run: |
           module load alpaka/2.0.0_cuda
-          if command -v uv >/dev/null 2>&1; then
-            uv run pytest python/tests/ -v
-          else
-            python -m pytest python/tests/ -v
-          fi
+          .venv/bin/pytest python/tests/ -v
