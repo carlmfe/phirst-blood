@@ -36,4 +36,8 @@ jobs:
       - name: Run Python tests
         shell: bash -l {0}
         run: |
-          pytest python/tests/ -v
+          if command -v uv >/dev/null 2>&1; then
+            uv run pytest python/tests/ -v
+          else
+            python -m pytest python/tests/ -v
+          fi

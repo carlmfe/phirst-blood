@@ -40,4 +40,8 @@ jobs:
         shell: bash -l {0}
         run: |
           module load kokkos/5.0.1
-          pytest python/tests/ -v
+          if command -v uv >/dev/null 2>&1; then
+            uv run pytest python/tests/ -v
+          else
+            python -m pytest python/tests/ -v
+          fi
