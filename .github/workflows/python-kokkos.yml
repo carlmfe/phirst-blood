@@ -31,10 +31,10 @@ jobs:
           module load kokkos/5.0.1
           if command -v uv >/dev/null 2>&1; then
             uv pip install -e . --no-build-isolation \
-              -Ccmake.args="-DPHIRST_BACKEND=KOKKOS"
+              -Ccmake.args="-DPHIRST_PYTHON_BINDINGS=ON;-DPHIRST_BACKEND=KOKKOS"
           else
             .venv/bin/pip install -e . --no-build-isolation \
-              -Ccmake.args="-DPHIRST_BACKEND=KOKKOS"
+              -Ccmake.args="-DPHIRST_PYTHON_BINDINGS=ON;-DPHIRST_BACKEND=KOKKOS"
           fi
 
       - name: Run Python tests

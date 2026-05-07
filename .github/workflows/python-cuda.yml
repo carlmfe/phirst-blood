@@ -31,10 +31,10 @@ jobs:
           module load cuda/13.0
           if command -v uv >/dev/null 2>&1; then
             uv pip install -e . --no-build-isolation \
-              -Ccmake.args="-DPHIRST_BACKEND=CUDA;-DPHIRST_GPU_ARCH=89"
+              -Ccmake.args="-DPHIRST_PYTHON_BINDINGS=ON;-DPHIRST_BACKEND=CUDA;-DPHIRST_GPU_ARCH=89"
           else
             .venv/bin/pip install -e . --no-build-isolation \
-              -Ccmake.args="-DPHIRST_BACKEND=CUDA;-DPHIRST_GPU_ARCH=89"
+              -Ccmake.args="-DPHIRST_PYTHON_BINDINGS=ON;-DPHIRST_BACKEND=CUDA;-DPHIRST_GPU_ARCH=89"
           fi
 
       - name: Run Python tests
