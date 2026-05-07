@@ -4,7 +4,6 @@
 
 #include "config.hpp"
 #include <cstdint>
-#include <vector>
 #include <sycl/sycl.hpp>
 
 namespace phirst {
@@ -23,56 +22,54 @@ inline sycl::queue& get_default_queue() {
 template <typename T>
 class DeviceBuffer {
 public:
-    DeviceBuffer() : data_(nullptr), size_(0), queue_(nullptr) {}
+    DeviceBuffer() : data_(nullptr), size_(0) {}
     explicit DeviceBuffer(int64_t n) : size_(n) {
-        queue_ = new sycl::queue{sycl::default_selector_v};
-        data_ = sycl::malloc_device<T>(n, *queue_);
+        data_ = sycl::malloc_device<T>(n, get_default_queue());
     }
-    ~DeviceBuffer() { if (data_ && queue_) { sycl::free(data_, *queue_); delete queue_; } }
+    ~DeviceBuffer() {
+        if (data_) { sycl::free(data_, get_default_queue()); }
+    }
 
-    DeviceBuffer(DeviceBuffer&& o) noexcept : data_(o.data_), size_(o.size_), queue_(o.queue_) {
-        o.data_ = nullptr; o.size_ = 0; o.queue_ = nullptr;
+    DeviceBuffer(DeviceBuffer&& o) noexcept : data_(o.data_), size_(o.size_) {
+        o.data_ = nullptr; o.size_ = 0;
     }
     DeviceBuffer& operator=(DeviceBuffer&& o) noexcept {
         if (this != &o) {
-            if (data_ && queue_) { sycl::free(data_, *queue_); delete queue_; }
-            data_ = o.data_; size_ = o.size_; queue_ = o.queue_;
-            o.data_ = nullptr; o.size_ = 0; o.queue_ = nullptr;
+            if (data_) { sycl::free(data_, get_default_queue()); }
+            data_ = o.data_; size_ = o.size_;
+            o.data_ = nullptr; o.size_ = 0;
         }
         return *this;
     }
     DeviceBuffer(const DeviceBuffer&) = delete;
     DeviceBuffer& operator=(const DeviceBuffer&) = delete;
 
-    T* data() { return data_; }
-    const T* data() const { return data_; }
-    int64_t size() const { return size_; }
-    sycl::queue& queue() { return *queue_; }
+    [[nodiscard]] T* data() { return data_; }
+    [[nodiscard]] const T* data() const { return data_; }
+    [[nodiscard]] int64_t size() const { return size_; }
 private:
     T* data_;
     int64_t size_;
-    sycl::queue* queue_;
 };
 
 // deep_copy
 template <typename T>
 void deep_copy(DeviceBuffer<T>& dest, const T* hostSrc, int64_t n) {
-    dest.queue().memcpy(dest.data(), hostSrc, n * sizeof(T)).wait();
+    get_default_queue().memcpy(dest.data(), hostSrc, n * sizeof(T)).wait();
 }
 
 template <typename T>
 void deep_copy(T* hostDest, const DeviceBuffer<T>& src, int64_t n) {
-    auto& queue = const_cast<DeviceBuffer<T>&>(src).queue();
-    queue.memcpy(hostDest, src.data(), n * sizeof(T)).wait();
+    get_default_queue().memcpy(hostDest, src.data(), n * sizeof(T)).wait();
 }
 
 // fill_buffer
 template <typename T>
 void fill_buffer(DeviceBuffer<T>& buf, T value) {
     if (value == T{}) {
-        buf.queue().memset(buf.data(), 0, buf.size() * sizeof(T)).wait();
+        get_default_queue().memset(buf.data(), 0, buf.size() * sizeof(T)).wait();
     } else {
-        buf.queue().parallel_for(sycl::range<1>(buf.size()), [=, ptr = buf.data()](sycl::id<1> i) {
+        get_default_queue().parallel_for(sycl::range<1>(buf.size()), [=, ptr = buf.data()](sycl::id<1> i) {
             ptr[i] = value;
         }).wait();
     }
@@ -118,7 +115,7 @@ void grid_stride_reduce(int64_t nWork, const WorkFunctor& work, T& result1, T& r
     auto* ptr1 = deviceResult1.data();
     auto* ptr2 = deviceResult2.data();
 
-    deviceResult1.queue().submit([&](sycl::handler& h) {
+    get_default_queue().submit([&](sycl::handler& h) {
         h.parallel_for(sycl::nd_range<1>{globalSize, localSize},
             [=](sycl::nd_item<1> item) {
                 int64_t threadIdx = static_cast<int64_t>(item.get_global_id(0));
@@ -132,7 +129,7 @@ void grid_stride_reduce(int64_t nWork, const WorkFunctor& work, T& result1, T& r
             }
         );
     });
-    deviceResult1.queue().wait();
+    get_default_queue().wait();
 
     deep_copy(&result1, deviceResult1, 1);
     deep_copy(&result2, deviceResult2, 1);
