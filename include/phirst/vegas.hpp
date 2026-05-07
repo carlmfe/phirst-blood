@@ -2,12 +2,11 @@
 #ifndef PHIRST_VEGAS_HPP
 #define PHIRST_VEGAS_HPP
 
-#include "backend/random.hpp"
 #include "backend/math.hpp"
+#include "backend/parallel.hpp"
+#include "backend/random.hpp"
 #include "contrib/HEPUtils/Vectors.h"
 
-
-#include <vector>
 #include <cstdint>
 
 namespace phirst {
@@ -57,6 +56,8 @@ struct VegasGrid {
 
 template <typename Generator, typename Integrand, int NumParticles, int MaxDim = 10, bool UpdateBins = true>
 struct VegasWorkFunctor {
+    static_assert(MaxDim >= Generator::nRandomNumbers,
+        "MaxDim must be >= Generator::nRandomNumbers; x[]/bins[] would overflow the stack");
     Generator generator;
     Integrand integrand;
     double cmEnergy;
@@ -145,6 +146,9 @@ struct AdaptGridWorkFunctor {
     template <typename Acc>
     PHIRST_HOST_DEVICE
     void operator()(const Acc& /*acc*/) const {
+        // Guard against nBins exceeding the fixed-size stack arrays.
+        if (grid.nBins > MaxBins) { return; }
+
         // Temporary storage. These are allocated on the stack, so nBins must be reasonable.
         double newXi[MaxBins + 1];
         double avgF[MaxBins];
