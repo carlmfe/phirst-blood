@@ -1,0 +1,17 @@
+[build-system]
+requires = ["scikit-build-core>=0.9", "nanobind>=2.0"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "phirst"
+version = "0.1.0"
+description = "Monte Carlo phase space integration for high-energy physics"
+requires-python = ">=3.9"
+dependencies = ["numpy>=1.21"]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov"]
+
+[tool.scikit-build]
+cmake.args = ["-DPHIRST_PYTHON_BINDINGS=ON", "-DPHIRST_BACKEND=SERIAL"]
+wheel.packages = ["python/phirst"]

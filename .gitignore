@@ -3,3 +3,7 @@ build*/
 
 # vscode files
 .vscode/
+__pycache__/
+*.pyc
+*.pyo
+*.so

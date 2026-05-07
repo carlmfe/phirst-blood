@@ -592,5 +592,23 @@ install(FILES
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/phirst
 )
 
+# =============================================================================
+# Python Bindings (nanobind + scikit-build-core)
+# =============================================================================
+option(PHIRST_PYTHON_BINDINGS "Build Python bindings with nanobind" OFF)
+
+if(PHIRST_PYTHON_BINDINGS)
+    find_package(Python 3.9 COMPONENTS Interpreter Development.Module REQUIRED)
+    find_package(nanobind CONFIG REQUIRED)
+
+    nanobind_add_module(_phirst NB_STATIC python/src/_phirst.cpp)
+    target_include_directories(_phirst PRIVATE include)
+    target_compile_definitions(_phirst PRIVATE PHIRST_BACKEND_SERIAL)
+    set_target_properties(_phirst PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/python/phirst"
+    )
+    install(TARGETS _phirst DESTINATION phirst)
+endif()
+
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "Compiler: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
