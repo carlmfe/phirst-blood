@@ -12,6 +12,7 @@ Phirst Blood provides Python access to the Phirst Monte Carlo phase-space genera
 - C++17 compiler
 - `scikit-build-core`
 - `nanobind`
+- `numba` (optional, for `@phirst.integrand` GPU device integrands)
 
 ### Default development install
 
@@ -22,7 +23,24 @@ pip install -e . --no-build-isolation
 
 This builds the Python extension in editable mode and installs the `phirst` package from the repository.
 
-### Selecting a backend
+### Build configuration
+
+#### Enabling the Numba GPU bridge
+
+To run a Python device function entirely on the GPU with `@phirst.integrand`, install `numba`
+and build the extra bridge library:
+
+```bash
+pip install numba
+pip install -e . --no-build-isolation \
+  -Ccmake.args="-DPHIRST_BACKEND=SERIAL;-DPHIRST_NUMBA_BRIDGE=ON"
+```
+
+This installs `libphirst_numba_bridge.so` alongside the Python package. You can also point
+`PHIRST_BRIDGE_LIB` at a custom bridge location.
+
+
+#### Selecting a backend
 
 The Python package is built through scikit-build-core, so backend selection is passed through CMake arguments:
 
@@ -123,6 +141,22 @@ def my_integrand(momenta):
 
 The callable receives all sampled events in one NumPy array and must return one value per event.
 
+**Numba GPU integrands**
+
+Use `@phirst.integrand(n_particles=N)` to compile a Numba CUDA device function to PTX and
+execute it through the Numba bridge:
+
+```python
+import phirst
+
+@phirst.integrand(n_particles=2)
+def my_fn(momenta_flat, n_particles):
+    return momenta_flat[0] + momenta_flat[4]
+```
+
+`momenta_flat` is a length `n_particles * 4` flat array laid out as
+`[E0, px0, py0, pz0, E1, px1, py1, pz1, ...]`.
+
 **Constraints**
 
 - `DrellYanIntegrand` requires `n_particles=2`.
@@ -185,7 +219,7 @@ result.n_events
 |---|---|---|---|---|
 | Built-in integrand | `phirst.DrellYanIntegrand(...)`, etc. | Fully compiled C++ | Yes | Production runs and best performance |
 | Python callable | `def f(momenta): ...` | Phase-space generation in compiled code, observable in NumPy/Python | No | Fast prototyping and custom observables |
-| Numba callable (future) | Not yet implemented | Planned compiled Python path | Planned | Future acceleration for custom observables |
+| Numba callable | `@phirst.integrand(n_particles=N)` | Numba PTX linked into a CUDA launch bridge | No | GPU execution for custom device functions |
 
 ## Phase space convention
 

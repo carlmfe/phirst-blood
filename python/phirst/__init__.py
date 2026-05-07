@@ -17,6 +17,7 @@ from ._phirst import (
 from ._version import __version__
 
 __all__ = [
+    "integrand",
     "integrate",
     "generate_phase_space",
     "__version__",
@@ -39,6 +40,23 @@ _MANDELSTAM_N = {
     MandelstamSIntegrand5: 5,
     MandelstamSIntegrand6: 6,
 }
+
+
+def integrand(n_particles):
+    """Decorator: compile a Numba device function as a PHIRST GPU integrand."""
+    if n_particles not in _SUPPORTED_N:
+        raise ValueError(f"n_particles must be one of {_SUPPORTED_N}, got {n_particles}")
+
+    try:
+        from .numba_integrand import _make_integrand_decorator
+
+        return _make_integrand_decorator(n_particles)
+    except ImportError as e:
+        raise ImportError(
+            "phirst.integrand requires numba, a CUDA-capable GPU, and "
+            "libphirst_numba_bridge.so. Install numba and build phirst "
+            "with PHIRST_NUMBA_BRIDGE=ON."
+        ) from e
 
 
 def generate_phase_space(*, n_particles, cm_energy, n_events=10_000,
@@ -110,6 +128,23 @@ def integrate(integrand, *, n_particles, cm_energy, n_events=100_000,
             integrand, float(cm_energy), masses_arr,
             int(n_events), int(seed), bool(use_vegas)
         )
+
+    try:
+        from . import numba_integrand as _numba_mod
+        from .numba_integrand import PhirstNumbaIntegrand
+
+        if isinstance(integrand, PhirstNumbaIntegrand):
+            return _numba_mod._run_numba_integrand(
+                integrand,
+                n_particles=n_particles,
+                cm_energy=cm_energy,
+                masses=masses_arr,
+                n_events=n_events,
+                seed=seed,
+            )
+    except ImportError:
+        pass
+
     if callable(integrand):
         return _C._integrate_callback(
             integrand, int(n_particles), float(cm_energy), masses_arr,
