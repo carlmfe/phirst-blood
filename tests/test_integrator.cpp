@@ -36,7 +36,8 @@ struct MockGenerator {
             for (int k = 0; k < 4; ++k) momenta[i][k] = 0.0;
         }
         return 0.0; // log weight = 0 -> weight = 1
-    }};
+    }
+};
 
 TEST(MCWorkFunctor, AccumulatesCorrectly) {
     const int NP = 2;
