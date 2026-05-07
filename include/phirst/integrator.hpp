@@ -219,14 +219,19 @@ public:
         //                        Atomic contention is manageable due to small event count.
         //   Phase 2 (integrate): nIntegratePerIter events WITHOUT bin updates → no atomics.
         //                        This is the performance-critical path; runs at flat-MC speed.
-        using ProbeF = VegasWorkFunctor<Generator, Integrand, NumParticles, 10, true>;
-        using IntF   = VegasWorkFunctor<Generator, Integrand, NumParticles, 10, false>;
+        // MaxDim must match nRandomNumbers to avoid overflowing the stack-allocated
+        // x[]/bins[] arrays inside VegasWorkFunctor.
+        static constexpr int kMaxDim = Generator::nRandomNumbers;
+        using ProbeF = VegasWorkFunctor<Generator, Integrand, NumParticles, kMaxDim, true>;
+        using IntF   = VegasWorkFunctor<Generator, Integrand, NumParticles, kMaxDim, false>;
 
         const int nIters = std::max(1, params.nIterations);
         const int64_t nIntegratePerIter = std::max(static_cast<int64_t>(1), nEvents_ / static_cast<int64_t>(nIters));
+        // Remainder events that integer division would otherwise silently drop.
+        const int64_t nRemainder = nEvents_ - nIntegratePerIter * static_cast<int64_t>(nIters);
 
         IntegrationResult totalResult;
-        totalResult.nEvents = static_cast<int64_t>(nIters) * nIntegratePerIter;
+        totalResult.nEvents = nEvents_;
 
         for (int iter = 0; iter < nIters; ++iter) {
             // Phase 1: probe (small, with atomics) to gather bin statistics
@@ -240,12 +245,15 @@ public:
             AdaptGridWorkFunctor<100> adaptFunctor{grid};
             run_single_thread(adaptFunctor);
 
-            // Phase 2: integrate with the adapted grid, no bin updates (no GPU atomics)
+            // Phase 2: integrate with the adapted grid, no bin updates (no GPU atomics).
+            // Add the remainder events to the last iteration so exactly nEvents_ are
+            // integrated in total.
             const uint64_t intSeed = seed + static_cast<uint64_t>(iter + 1) * 0x94D049BB133111EBULL;
+            const int64_t eventsThisIter = nIntegratePerIter + (iter == nIters - 1 ? nRemainder : 0);
             IntF intWork(generator, integrand_, cmEnergy, masses, intSeed, grid);
             double iterSum = 0.0;
             double iterSum2 = 0.0;
-            grid_stride_reduce(nIntegratePerIter, intWork, iterSum, iterSum2);
+            grid_stride_reduce(eventsThisIter, intWork, iterSum, iterSum2);
 
             totalResult.sum  += iterSum;
             totalResult.sum2 += iterSum2;
