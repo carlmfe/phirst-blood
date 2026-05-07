@@ -97,12 +97,12 @@ inline auto createKokkosRngPool(uint64_t seed) -> KokkosRngPool {
 template <typename TAcc>
 struct AlpakaRng {
     uint64_t state;
-    
+
     ALPAKA_FN_ACC AlpakaRng(TAcc const& acc, uint64_t seed, int64_t threadIdx) {
         (void)acc;
         state = initRngState(seed, threadIdx);
     }
-    
+
     ALPAKA_FN_ACC auto uniform() -> double {
         return uniformRandom(state);
     }

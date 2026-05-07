@@ -120,11 +120,18 @@ endfunction()
 # Backend Selection
 # =============================================================================
 # Usage: cmake -DPHIRST_BACKEND=CUDA ..
-# Valid backends: AUTO, SERIAL, CUDA, KOKKOS, ALPAKA, SYCL
-# Default: AUTO (probes for GPU toolchains in order: CUDA > HIP > SYCL > SERIAL)
+# Valid backends: AUTO, SERIAL, CUDA, KOKKOS, ALPAKA, SYCL, HIP
+# Default: AUTO (probes for GPU toolchains in order: CUDA > KOKKOS/HIP > SYCL > SERIAL)
 
-set(PHIRST_BACKEND "AUTO" CACHE STRING "Backend: AUTO, SERIAL, CUDA, KOKKOS, ALPAKA, SYCL")
-set_property(CACHE PHIRST_BACKEND PROPERTY STRINGS AUTO SERIAL CUDA KOKKOS ALPAKA SYCL)
+set(PHIRST_BACKEND "AUTO" CACHE STRING "Backend: AUTO, SERIAL, CUDA, KOKKOS, ALPAKA, SYCL, HIP")
+set_property(CACHE PHIRST_BACKEND PROPERTY STRINGS AUTO SERIAL CUDA KOKKOS ALPAKA SYCL HIP)
+
+# GPU architecture override (optional).
+# CUDA/Alpaka:  single SM number or semicolon-separated list, e.g. "89" or "80;89"
+# SYCL/CUDA:    full arch string, e.g. "sm_89"
+# HIP:          GFX string or semicolon-separated list, e.g. "gfx1100" or "gfx908;gfx90a"
+# Leave empty to let each backend auto-detect (default behaviour).
+set(PHIRST_GPU_ARCH "" CACHE STRING "Override GPU architecture (e.g. 89 for CUDA/Alpaka, sm_89 for SYCL, gfx1100 for HIP)")
 
 # --- AUTO detection ---
 if(PHIRST_BACKEND STREQUAL "AUTO")
@@ -139,15 +146,21 @@ if(PHIRST_BACKEND STREQUAL "AUTO")
         find_program(_ROCMINFO rocminfo
             PATHS /opt/rocm/bin $ENV{ROCM_PATH}/bin)
         if(_ROCM_AGENT OR _ROCMINFO)
-            # ROCm present — prefer Kokkos if installed, else SYCL, else warn
+            # ROCm present — prefer Kokkos, then native HIP, then SYCL/AMD
             find_package(Kokkos QUIET)
             if(Kokkos_FOUND)
                 set(PHIRST_BACKEND "KOKKOS")
                 message(STATUS "AUTO: ROCm + Kokkos found → selecting KOKKOS backend")
             else()
-                set(PHIRST_BACKEND "SYCL")
-                set(SYCL_BACKEND "AMD" CACHE STRING "SYCL device backend (auto-set)" FORCE)
-                message(STATUS "AUTO: ROCm found (no Kokkos) → selecting SYCL/AMD backend")
+                check_language(HIP)
+                if(CMAKE_HIP_COMPILER)
+                    set(PHIRST_BACKEND "HIP")
+                    message(STATUS "AUTO: ROCm + HIP compiler found → selecting HIP backend")
+                else()
+                    set(PHIRST_BACKEND "SYCL")
+                    set(SYCL_BACKEND "AMD" CACHE STRING "SYCL device backend (auto-set)" FORCE)
+                    message(STATUS "AUTO: ROCm found (no Kokkos, no HIP compiler) → selecting SYCL/AMD backend")
+                endif()
             endif()
         else()
             find_program(_SYCL_LS sycl-ls)
@@ -172,8 +185,9 @@ endif()
 
 message(STATUS "PHIRST Backend: ${PHIRST_BACKEND}")
 
-# Name of Drell-Yan example executable based on backend
-string(TOLOWER "ex_drell_yan_${PHIRST_BACKEND}" EXENAME)
+# Name of examples based on backend
+string(TOLOWER "ex_drell_yan_${PHIRST_BACKEND}" EXENAME_DY)
+string(TOLOWER "ex_eggholder_${PHIRST_BACKEND}" EXENAME_EGG)
 
 # =============================================================================
 # Common Settings
@@ -186,8 +200,15 @@ endif()
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Test suite (disabled by default; enable with -DPHIRST_BUILD_TESTS=ON)
+option(PHIRST_BUILD_TESTS "Build the GoogleTest suite alongside the examples" OFF)
+if(PHIRST_BUILD_TESTS)
+    enable_testing()
+endif()
+
 # Source files
-set(SOURCES examples/drell_yan.cpp)
+set(SOURCES_DY examples/drell_yan.cpp)
+set(SOURCES_EGG examples/eggholder.cpp)
 
 # =============================================================================
 # Backend-Specific Configuration
@@ -200,10 +221,18 @@ if(PHIRST_BACKEND STREQUAL "SERIAL")
     set(CMAKE_CXX_STANDARD 20)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
     
-    add_executable(${EXENAME} ${SOURCES})
-    target_include_directories(${EXENAME} PRIVATE include)
-    target_compile_definitions(${EXENAME} PRIVATE PHIRST_BACKEND_SERIAL)
-    
+    add_executable(${EXENAME_DY} ${SOURCES_DY})
+    target_include_directories(${EXENAME_DY} PRIVATE include)
+    target_compile_definitions(${EXENAME_DY} PRIVATE PHIRST_BACKEND_SERIAL)
+
+    add_executable(${EXENAME_EGG} ${SOURCES_EGG})
+    target_include_directories(${EXENAME_EGG} PRIVATE include)
+    target_compile_definitions(${EXENAME_EGG} PRIVATE PHIRST_BACKEND_SERIAL)
+
+    if(PHIRST_BUILD_TESTS)
+        add_subdirectory(tests)
+    endif()
+
 elseif(PHIRST_BACKEND STREQUAL "CUDA")
     # ---------------------------
     # CUDA Backend
@@ -221,23 +250,39 @@ elseif(PHIRST_BACKEND STREQUAL "CUDA")
     set(CMAKE_CUDA_STANDARD 20)
     set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
-    # Auto-detect SM architectures unless explicitly set by the user
-    if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES OR CMAKE_CUDA_ARCHITECTURES STREQUAL "")
+    # Resolve CUDA architectures: PHIRST_GPU_ARCH > existing cache > auto-detect
+    if(PHIRST_GPU_ARCH)
+        set(CMAKE_CUDA_ARCHITECTURES "${PHIRST_GPU_ARCH}" CACHE STRING "CUDA architectures" FORCE)
+        message(STATUS "CUDA architectures (from PHIRST_GPU_ARCH): ${CMAKE_CUDA_ARCHITECTURES}")
+    elseif(NOT DEFINED CMAKE_CUDA_ARCHITECTURES OR CMAKE_CUDA_ARCHITECTURES STREQUAL "")
         detect_nvidia_architectures(_detected_cuda_archs)
         set(CMAKE_CUDA_ARCHITECTURES "${_detected_cuda_archs}" CACHE STRING "CUDA architectures" FORCE)
+        message(STATUS "CUDA architectures (auto-detected): ${CMAKE_CUDA_ARCHITECTURES}")
+    else()
+        message(STATUS "CUDA architectures (cached): ${CMAKE_CUDA_ARCHITECTURES}")
     endif()
-    message(STATUS "CUDA architectures: ${CMAKE_CUDA_ARCHITECTURES}")
-    
-    # For CUDA, rename drell_yan.cpp to drell_yan.cu
-    set_source_files_properties(examples/drell_yan.cpp PROPERTIES LANGUAGE CUDA)
-    
-    add_executable(${EXENAME} ${SOURCES})
-    target_include_directories(${EXENAME} PRIVATE include)
-    target_compile_definitions(${EXENAME} PRIVATE PHIRST_BACKEND_CUDA)
-    target_compile_options(${EXENAME} PRIVATE
+
+    # For CUDA, rename .cpp to .cu
+    set_source_files_properties(examples/drell_yan.cpp examples/eggholder.cpp PROPERTIES LANGUAGE CUDA)
+
+    add_executable(${EXENAME_DY} ${SOURCES_DY})
+    target_include_directories(${EXENAME_DY} PRIVATE include)
+    target_compile_definitions(${EXENAME_DY} PRIVATE PHIRST_BACKEND_CUDA)
+    target_compile_options(${EXENAME_DY} PRIVATE
         $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>
     )
-    
+
+    add_executable(${EXENAME_EGG} ${SOURCES_EGG})
+    target_include_directories(${EXENAME_EGG} PRIVATE include)
+    target_compile_definitions(${EXENAME_EGG} PRIVATE PHIRST_BACKEND_CUDA)
+    target_compile_options(${EXENAME_EGG} PRIVATE
+        $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>
+    )
+
+    if(PHIRST_BUILD_TESTS)
+        add_subdirectory(tests)
+    endif()
+
 elseif(PHIRST_BACKEND STREQUAL "KOKKOS")
     # ---------------------------
     # Kokkos Backend
@@ -247,11 +292,20 @@ elseif(PHIRST_BACKEND STREQUAL "KOKKOS")
     
     find_package(Kokkos REQUIRED)
     
-    add_executable(${EXENAME} ${SOURCES})
-    target_include_directories(${EXENAME} PRIVATE include)
-    target_compile_definitions(${EXENAME} PRIVATE PHIRST_BACKEND_KOKKOS)
-    target_link_libraries(${EXENAME} PRIVATE Kokkos::kokkos)
-    
+    add_executable(${EXENAME_DY} ${SOURCES_DY})
+    target_include_directories(${EXENAME_DY} PRIVATE include)
+    target_compile_definitions(${EXENAME_DY} PRIVATE PHIRST_BACKEND_KOKKOS)
+    target_link_libraries(${EXENAME_DY} PRIVATE Kokkos::kokkos)
+
+    add_executable(${EXENAME_EGG} ${SOURCES_EGG})
+    target_include_directories(${EXENAME_EGG} PRIVATE include)
+    target_compile_definitions(${EXENAME_EGG} PRIVATE PHIRST_BACKEND_KOKKOS)
+    target_link_libraries(${EXENAME_EGG} PRIVATE Kokkos::kokkos)
+
+    if(PHIRST_BUILD_TESTS)
+        add_subdirectory(tests)
+    endif()
+
 elseif(PHIRST_BACKEND STREQUAL "ALPAKA")
     # ---------------------------
     # Alpaka Backend
@@ -266,7 +320,12 @@ elseif(PHIRST_BACKEND STREQUAL "ALPAKA")
     
     if(ALPAKA_BACKEND STREQUAL "CUDA" AND CMAKE_CUDA_COMPILER)
         enable_language(CUDA)
-        set(CMAKE_CUDA_ARCHITECTURES "native" CACHE STRING "CUDA architectures")
+        if(PHIRST_GPU_ARCH)
+            set(CMAKE_CUDA_ARCHITECTURES "${PHIRST_GPU_ARCH}" CACHE STRING "CUDA architectures" FORCE)
+            message(STATUS "Alpaka CUDA architectures (from PHIRST_GPU_ARCH): ${CMAKE_CUDA_ARCHITECTURES}")
+        else()
+            set(CMAKE_CUDA_ARCHITECTURES "native" CACHE STRING "CUDA architectures")
+        endif()
         set(alpaka_ACC_GPU_CUDA_ENABLE ON)
         add_compile_definitions(ALPAKA_USE_CUDA)
     elseif(ALPAKA_BACKEND STREQUAL "OMP")
@@ -277,14 +336,23 @@ elseif(PHIRST_BACKEND STREQUAL "ALPAKA")
         set(alpaka_ACC_CPU_B_SEQ_T_SEQ_ENABLE ON)
         add_compile_definitions(ALPAKA_USE_CPU_SERIAL)
     endif()
-    
+
     find_package(alpaka REQUIRED)
-    
-    alpaka_add_executable(${EXENAME} ${SOURCES})
-    target_include_directories(${EXENAME} PRIVATE include)
-    target_compile_definitions(${EXENAME} PRIVATE PHIRST_BACKEND_ALPAKA)
-    target_link_libraries(${EXENAME} PRIVATE alpaka::alpaka)
-    
+
+    alpaka_add_executable(${EXENAME_DY} ${SOURCES_DY})
+    target_include_directories(${EXENAME_DY} PRIVATE include)
+    target_compile_definitions(${EXENAME_DY} PRIVATE PHIRST_BACKEND_ALPAKA)
+    target_link_libraries(${EXENAME_DY} PRIVATE alpaka::alpaka)
+
+    alpaka_add_executable(${EXENAME_EGG} ${SOURCES_EGG})
+    target_include_directories(${EXENAME_EGG} PRIVATE include)
+    target_compile_definitions(${EXENAME_EGG} PRIVATE PHIRST_BACKEND_ALPAKA)
+    target_link_libraries(${EXENAME_EGG} PRIVATE alpaka::alpaka)
+
+    if(PHIRST_BUILD_TESTS)
+        add_subdirectory(tests)
+    endif()
+
 elseif(PHIRST_BACKEND STREQUAL "SYCL")
     # ---------------------------
     # SYCL Backend
@@ -300,29 +368,111 @@ elseif(PHIRST_BACKEND STREQUAL "SYCL")
     
     message(STATUS "SYCL device backend: ${SYCL_BACKEND}")
     
-    add_executable(${EXENAME} ${SOURCES})
-    target_include_directories(${EXENAME} PRIVATE include)
-    target_compile_definitions(${EXENAME} PRIVATE PHIRST_BACKEND_SYCL)
+    add_executable(${EXENAME_DY} ${SOURCES_DY})
+    target_include_directories(${EXENAME_DY} PRIVATE include)
+    target_compile_definitions(${EXENAME_DY} PRIVATE PHIRST_BACKEND_SYCL)
+
+    add_executable(${EXENAME_EGG} ${SOURCES_EGG})
+    target_include_directories(${EXENAME_EGG} PRIVATE include)
+    target_compile_definitions(${EXENAME_EGG} PRIVATE PHIRST_BACKEND_SYCL)
     
     if(SYCL_BACKEND STREQUAL "CUDA")
-        set(CUDA_GPU_ARCH "sm_70" CACHE STRING "CUDA GPU architecture")
-        target_compile_options(${EXENAME} PRIVATE
+        set(CUDA_GPU_ARCH "sm_70" CACHE STRING "CUDA GPU architecture for SYCL")
+        if(PHIRST_GPU_ARCH)
+            set(CUDA_GPU_ARCH "${PHIRST_GPU_ARCH}" CACHE STRING "CUDA GPU architecture for SYCL" FORCE)
+            message(STATUS "SYCL CUDA arch (from PHIRST_GPU_ARCH): ${CUDA_GPU_ARCH}")
+        else()
+            message(STATUS "SYCL CUDA arch: ${CUDA_GPU_ARCH}")
+        endif()
+        target_compile_options(${EXENAME_DY} PRIVATE
             -fsycl
             -fsycl-targets=nvptx64-nvidia-cuda
             -Xsycl-target-backend
             --cuda-gpu-arch=${CUDA_GPU_ARCH}
         )
-        target_link_options(${EXENAME} PRIVATE
+        target_link_options(${EXENAME_DY} PRIVATE
+            -fsycl
+            -fsycl-targets=nvptx64-nvidia-cuda
+        )
+        target_compile_options(${EXENAME_EGG} PRIVATE
+            -fsycl
+            -fsycl-targets=nvptx64-nvidia-cuda
+            -Xsycl-target-backend
+            --cuda-gpu-arch=${CUDA_GPU_ARCH}
+        )
+        target_link_options(${EXENAME_EGG} PRIVATE
             -fsycl
             -fsycl-targets=nvptx64-nvidia-cuda
         )
     else()
-        target_compile_options(${EXENAME} PRIVATE -fsycl)
-        target_link_options(${EXENAME} PRIVATE -fsycl)
+        target_compile_options(${EXENAME_DY} PRIVATE -fsycl)
+        target_link_options(${EXENAME_DY} PRIVATE -fsycl)
+        target_compile_options(${EXENAME_EGG} PRIVATE -fsycl)
+        target_link_options(${EXENAME_EGG} PRIVATE -fsycl)
     endif()
-    
+
+    if(PHIRST_BUILD_TESTS)
+        add_subdirectory(tests)
+    endif()
+
+elseif(PHIRST_BACKEND STREQUAL "HIP")
+    # ---------------------------
+    # HIP Backend (AMD GPUs)
+    # ---------------------------
+    # Requires ROCm with CMake native HIP support (CMake ≥ 3.21).
+    # Use: cmake -DPHIRST_BACKEND=HIP -DPHIRST_GPU_ARCH=gfx1100 ..
+    set(CMAKE_CXX_STANDARD 20)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+    include(CheckLanguage)
+    check_language(HIP)
+    if(NOT CMAKE_HIP_COMPILER)
+        message(FATAL_ERROR "HIP compiler not found. Install ROCm and ensure hipcc is on PATH.")
+    endif()
+    enable_language(HIP)
+
+    set(CMAKE_HIP_STANDARD 20)
+    set(CMAKE_HIP_STANDARD_REQUIRED ON)
+
+    # Resolve HIP architectures: PHIRST_GPU_ARCH > existing cache > auto-detect
+    # Format: gfx* strings, e.g. "gfx1100" or "gfx908;gfx90a"
+    if(PHIRST_GPU_ARCH)
+        set(CMAKE_HIP_ARCHITECTURES "${PHIRST_GPU_ARCH}" CACHE STRING "HIP architectures" FORCE)
+        message(STATUS "HIP architectures (from PHIRST_GPU_ARCH): ${CMAKE_HIP_ARCHITECTURES}")
+    elseif(NOT DEFINED CMAKE_HIP_ARCHITECTURES OR CMAKE_HIP_ARCHITECTURES STREQUAL "")
+        detect_amd_architectures(_detected_hip_archs)
+        if(_detected_hip_archs)
+            set(CMAKE_HIP_ARCHITECTURES "${_detected_hip_archs}" CACHE STRING "HIP architectures" FORCE)
+            message(STATUS "HIP architectures (auto-detected): ${CMAKE_HIP_ARCHITECTURES}")
+        else()
+            message(FATAL_ERROR
+                "No AMD GPU detected and PHIRST_GPU_ARCH not set. "
+                "Specify the target architecture: -DPHIRST_GPU_ARCH=gfx1100")
+        endif()
+    else()
+        message(STATUS "HIP architectures (cached): ${CMAKE_HIP_ARCHITECTURES}")
+    endif()
+
+    # Compile .cpp sources as HIP (no file rename needed with CMake native HIP)
+    set_source_files_properties(examples/drell_yan.cpp examples/eggholder.cpp
+        PROPERTIES LANGUAGE HIP)
+
+    add_executable(${EXENAME_DY} ${SOURCES_DY})
+    target_include_directories(${EXENAME_DY} PRIVATE include)
+    target_compile_definitions(${EXENAME_DY} PRIVATE PHIRST_BACKEND_HIP)
+
+    add_executable(${EXENAME_EGG} ${SOURCES_EGG})
+    target_include_directories(${EXENAME_EGG} PRIVATE include)
+    target_compile_definitions(${EXENAME_EGG} PRIVATE PHIRST_BACKEND_HIP)
+
+    if(PHIRST_BUILD_TESTS)
+        # HIP language is enabled above; tests/CMakeLists.txt will compile
+        # test sources as HIP via set_source_files_properties.
+        add_subdirectory(tests)
+    endif()
+
 else()
-    message(FATAL_ERROR "Unknown backend: ${PHIRST_BACKEND}. Use SERIAL, CUDA, KOKKOS, ALPAKA, or SYCL.")
+    message(FATAL_ERROR "Unknown backend: ${PHIRST_BACKEND}. Use SERIAL, CUDA, KOKKOS, ALPAKA, SYCL, or HIP.")
 endif()
 
 # =============================================================================

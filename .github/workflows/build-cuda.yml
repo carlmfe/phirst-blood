@@ -1,0 +1,37 @@
+name: Build (CUDA)
+
+on:
+  push:
+    branches: [main, "dev/**"]
+  pull_request:
+
+jobs:
+  build-cuda:
+    runs-on: [self-hosted, gpu]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure (CUDA backend + tests)
+        shell: bash -l {0}
+        run: |
+          module load cuda/13.0
+          cmake -S . -B build-cuda \
+            -DPHIRST_BACKEND=CUDA \
+            -DPHIRST_BUILD_TESTS=ON \
+            -DPHIRST_GPU_ARCH=89 \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        shell: bash -l {0}
+        run: |
+          module load cuda/13.0
+          cmake --build build-cuda --parallel
+
+      - name: Run tests
+        shell: bash -l {0}
+        run: |
+          module load cuda/13.0
+          ctest --test-dir build-cuda --output-on-failure

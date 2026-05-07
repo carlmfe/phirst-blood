@@ -1,0 +1,38 @@
+name: Build (KOKKOS)
+
+on:
+  push:
+    branches: [main, "dev/**"]
+  pull_request:
+
+jobs:
+  build-kokkos:
+    runs-on: [self-hosted, gpu]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure (Kokkos backend + tests)
+        # Note: kokkos/5.0.1 is built with CUDA; the runner must provide GCC ≤ 12
+        # (or the module must set CC/CXX to a compatible compiler).
+        shell: bash -l {0}
+        run: |
+          module load kokkos/5.0.1
+          cmake -S . -B build-kokkos \
+            -DPHIRST_BACKEND=KOKKOS \
+            -DPHIRST_BUILD_TESTS=ON \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        shell: bash -l {0}
+        run: |
+          module load kokkos/5.0.1
+          cmake --build build-kokkos --parallel
+
+      - name: Run tests
+        shell: bash -l {0}
+        run: |
+          module load kokkos/5.0.1
+          ctest --test-dir build-kokkos --output-on-failure

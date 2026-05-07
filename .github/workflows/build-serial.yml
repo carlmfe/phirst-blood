@@ -1,0 +1,28 @@
+name: Build (SERIAL)
+
+on:
+  push:
+    branches: [main, "dev/**"]
+  pull_request:
+
+jobs:
+  build-serial:
+    runs-on: [self-hosted, gpu]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure (SERIAL backend + tests)
+        run: |
+          cmake -S . -B build-serial \
+            -DPHIRST_BACKEND=SERIAL \
+            -DPHIRST_BUILD_TESTS=ON \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build-serial --parallel
+
+      - name: Run tests
+        run: ctest --test-dir build-serial --output-on-failure

@@ -1,0 +1,45 @@
+---
+# clang-tidy configuration for phirst-blood
+# Run against the serial build's compile_commands.json:
+#   clang-tidy -p build-serial examples/drell_yan.cpp examples/eggholder.cpp
+#
+# Only diagnostics whose source file matches HeaderFilterRegex are reported
+# for headers; example .cpp files are always checked.
+
+Checks: >
+  -*,
+  bugprone-*,
+  cppcoreguidelines-*,
+  modernize-*,
+  performance-*,
+  readability-*,
+  -bugprone-easily-swappable-parameters,
+  -cppcoreguidelines-avoid-c-arrays,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-macro-to-enum,
+  -cppcoreguidelines-macro-usage,
+  -cppcoreguidelines-owning-memory,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
+  -cppcoreguidelines-pro-type-vararg,
+  -cppcoreguidelines-special-member-functions,
+  -modernize-avoid-c-arrays,
+  -modernize-macro-to-enum,
+  -modernize-loop-convert,
+  -modernize-use-std-numbers,
+  -modernize-use-trailing-return-type,
+  -readability-function-cognitive-complexity,
+  -readability-identifier-length,
+  -readability-identifier-naming,
+  -readability-magic-numbers,
+
+WarningsAsErrors: ''
+
+# Only surface warnings that originate in our own headers (not system or
+# framework headers).  The serial build has no GPU includes so coverage is
+# limited to backend-agnostic code; that is intentional.
+HeaderFilterRegex: '.*/include/phirst/.*'
+
+FormatStyle: none

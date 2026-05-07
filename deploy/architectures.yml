@@ -1,0 +1,244 @@
+# Phirst Blood — Virtual Architecture Targets
+#
+# This file is the source of truth for all GPU architectures that Phirst Blood
+# actively targets. CI compile-check workflows (compile-check-*.yml) reference
+# this list and verify that each supported backend compiles for each architecture.
+#
+# Fields per architecture:
+#   id                 — machine-readable identifier used in CI matrix keys
+#   name               — human-readable name
+#   family             — nvidia | amd | intel
+#   class              — hpc | desktop | cloud
+#   runner_requirement — runner label needed to compile for this arch
+#                        (self-hosted-gpu  = current runner, NVIDIA RTX 2000 Ada)
+#                        (self-hosted-amd  = future AMD runner, not yet available)
+#                        (self-hosted-intel = future Intel runner, not yet available)
+#   backends           — backends that CAN target this architecture, with their
+#                        CMake configuration. A backend is omitted if it cannot
+#                        target the architecture at all.
+#
+# Backend CMake flags:
+#   cuda:   PHIRST_GPU_ARCH=<arch>          e.g. "89"  → CMAKE_CUDA_ARCHITECTURES
+#   alpaka: PHIRST_GPU_ARCH=<arch>          e.g. "89"  → CMAKE_CUDA_ARCHITECTURES (Alpaka/CUDA sub-backend)
+#   sycl:   PHIRST_GPU_ARCH=<arch>          e.g. "sm_89" → --cuda-gpu-arch; requires SYCL_BACKEND=CUDA|INTEL|AMD
+#   kokkos: arch is baked into the Kokkos module installation; no per-build override
+
+architectures:
+
+  # ---------------------------------------------------------------------------
+  # NVIDIA — all four GPU backends support these architectures
+  # Runner: self-hosted-gpu (current runner, RTX 2000 Ada sm_89)
+  # ---------------------------------------------------------------------------
+
+  - id: nvidia-v100
+    name: "NVIDIA V100 (Volta)"
+    family: nvidia
+    class: hpc
+    runner_requirement: self-hosted-gpu
+    note: >
+      CUDA 13.0 dropped sm_70 support. Compile checks for cuda and alpaka backends
+      require CUDA ≤ 12. The sycl/clang backend may still support sm_70 in principle
+      but is omitted from CI to keep the architecture matrix consistent.
+    backends:
+      sycl:
+        backend: CUDA
+        arch: "sm_70"
+        note: "Disabled in CI — CUDA 13.0 dropped sm_70; re-enable with CUDA ≤ 12 runner."
+      kokkos:
+        note: >
+          Arch is baked into the Kokkos module installation.
+          The current module (kokkos/5.0.1) targets sm_89.
+          A Kokkos build for sm_70 would require a separate module.
+
+  - id: nvidia-t4
+    name: "NVIDIA T4 (Turing)"
+    family: nvidia
+    class: cloud
+    runner_requirement: self-hosted-gpu
+    backends:
+      cuda:
+        arch: "75"
+      alpaka:
+        arch: "75"
+      sycl:
+        backend: CUDA
+        arch: "sm_75"
+      kokkos:
+        note: "Arch baked into Kokkos module; see nvidia-v100 note."
+
+  - id: nvidia-a100
+    name: "NVIDIA A100 (Ampere)"
+    family: nvidia
+    class: hpc
+    runner_requirement: self-hosted-gpu
+    backends:
+      cuda:
+        arch: "80"
+      alpaka:
+        arch: "80"
+      sycl:
+        backend: CUDA
+        arch: "sm_80"
+      kokkos:
+        note: "Arch baked into Kokkos module; see nvidia-v100 note."
+
+  - id: nvidia-ampere-desktop
+    name: "NVIDIA RTX 30xx (Ampere desktop)"
+    family: nvidia
+    class: desktop
+    runner_requirement: self-hosted-gpu
+    backends:
+      cuda:
+        arch: "86"
+      alpaka:
+        arch: "86"
+      sycl:
+        backend: CUDA
+        arch: "sm_86"
+      kokkos:
+        note: "Arch baked into Kokkos module; see nvidia-v100 note."
+
+  - id: nvidia-ada
+    name: "NVIDIA RTX 40xx / RTX 2000 Ada (Ada Lovelace)"
+    family: nvidia
+    class: desktop
+    runner_requirement: self-hosted-gpu
+    backends:
+      cuda:
+        arch: "89"
+      alpaka:
+        arch: "89"
+      sycl:
+        backend: CUDA
+        arch: "sm_89"
+      kokkos:
+        note: >
+          This is the architecture of the current self-hosted runner.
+          The kokkos/5.0.1 module was built for sm_89 — compile tests pass.
+
+  - id: nvidia-h100
+    name: "NVIDIA H100 / GH200 (Hopper)"
+    family: nvidia
+    class: hpc
+    runner_requirement: self-hosted-gpu
+    backends:
+      cuda:
+        arch: "90"
+      alpaka:
+        arch: "90"
+      sycl:
+        backend: CUDA
+        arch: "sm_90"
+      kokkos:
+        note: "Arch baked into Kokkos module; see nvidia-v100 note."
+
+  # ---------------------------------------------------------------------------
+  # AMD — Kokkos (with HIP) and SYCL/AMD backends
+  # Runner: self-hosted-amd — NOT YET AVAILABLE
+  #
+  # Current CMakeLists.txt status:
+  #   - Kokkos/HIP: works if Kokkos was built with HIP (Kokkos_ARCH_AMD_GFXxxx)
+  #   - SYCL/AMD:   AUTO detection sets SYCL_BACKEND=AMD, but the SYCL section
+  #                 only emits "-fsycl" with no AMD-specific target flags.
+  #                 Proper AOT support (amdgcn-amd-amdhsa) needs a C++ Dev task.
+  # ---------------------------------------------------------------------------
+
+  - id: amd-mi100
+    name: "AMD MI100 (CDNA1)"
+    family: amd
+    class: hpc
+    runner_requirement: self-hosted-amd
+    backends:
+      hip:
+        arch: "gfx908"
+      kokkos:
+        arch: "AMD_GFX908"
+        note: "Requires Kokkos built with HIP (Kokkos_ENABLE_HIP + Kokkos_ARCH_AMD_GFX908)"
+      sycl:
+        backend: AMD
+        arch: "gfx908"
+        note: >
+          Requires SYCL/AMD AOT flags in CMakeLists.txt
+          (-fsycl-targets=amdgcn-amd-amdhsa -Xsycl-target-backend --offload-arch=gfx908).
+          This is a C++ Development task before this entry can be CI-tested.
+
+  - id: amd-mi250
+    name: "AMD MI250 / MI250X (CDNA2)"
+    family: amd
+    class: hpc
+    runner_requirement: self-hosted-amd
+    backends:
+      hip:
+        arch: "gfx90a"
+      kokkos:
+        arch: "AMD_GFX90A"
+        note: "Requires Kokkos built with HIP (Kokkos_ENABLE_HIP + Kokkos_ARCH_AMD_GFX90A)"
+      sycl:
+        backend: AMD
+        arch: "gfx90a"
+        note: "See amd-mi100 SYCL note."
+
+  - id: amd-mi300x
+    name: "AMD MI300X (CDNA3)"
+    family: amd
+    class: hpc
+    runner_requirement: self-hosted-amd
+    backends:
+      hip:
+        arch: "gfx942"
+      kokkos:
+        arch: "AMD_GFX942"
+        note: "Requires Kokkos built with HIP (Kokkos_ENABLE_HIP + Kokkos_ARCH_AMD_GFX942)"
+      sycl:
+        backend: AMD
+        arch: "gfx942"
+        note: "See amd-mi100 SYCL note."
+
+  - id: amd-rdna3-desktop
+    name: "AMD RX 7900 XT (RDNA3)"
+    family: amd
+    class: desktop
+    runner_requirement: self-hosted-amd
+    backends:
+      hip:
+        arch: "gfx1100"
+      sycl:
+        backend: AMD
+        arch: "gfx1100"
+        note: "See amd-mi100 SYCL note."
+
+  # ---------------------------------------------------------------------------
+  # Intel — SYCL/Intel backend only
+  # Runner: self-hosted-intel — NOT YET AVAILABLE
+  #
+  # Current CMakeLists.txt status:
+  #   SYCL_BACKEND=INTEL falls through to "-fsycl" only (JIT compilation).
+  #   For AOT, the Intel path needs -fsycl-targets=spir64_gen plus ocloc device IDs.
+  #   This is a C++ Development task before per-device AOT testing is possible.
+  #   JIT (-fsycl alone) will work on any SYCL/Intel runner at runtime.
+  # ---------------------------------------------------------------------------
+
+  - id: intel-pvc
+    name: "Intel Data Center GPU Max (Ponte Vecchio)"
+    family: intel
+    class: hpc
+    runner_requirement: self-hosted-intel
+    backends:
+      sycl:
+        backend: INTEL
+        arch: "spir64_gen"
+        note: >
+          Requires Intel oneAPI DPC++ compiler.
+          Current CMakeLists.txt emits -fsycl only (JIT); AOT requires
+          -fsycl-targets=spir64_gen and ocloc device IDs — C++ Dev task.
+
+  - id: intel-arc-desktop
+    name: "Intel Arc A770 (Alchemist)"
+    family: intel
+    class: desktop
+    runner_requirement: self-hosted-intel
+    backends:
+      sycl:
+        backend: INTEL
+        arch: "spir64_gen"
+        note: "See intel-pvc SYCL note."

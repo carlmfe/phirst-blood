@@ -1,0 +1,59 @@
+name: Compile Check — CUDA
+
+# Verify that the CUDA backend compiles for all targeted NVIDIA architectures.
+# This is a compile-only check; no GPU execution is performed.
+# Architecture matrix mirrors deploy/architectures.yml (NVIDIA entries, CUDA backend).
+
+on:
+  push:
+    branches: [main, dev/**]
+    paths:
+      - 'include/**'
+      - 'examples/**'
+      - 'CMakeLists.txt'
+      - 'deploy/architectures.yml'
+      - '.github/workflows/compile-check-cuda.yml'
+  pull_request:
+    paths:
+      - 'include/**'
+      - 'examples/**'
+      - 'CMakeLists.txt'
+      - 'deploy/architectures.yml'
+      - '.github/workflows/compile-check-cuda.yml'
+
+jobs:
+  compile-check-cuda:
+    name: "CUDA sm_${{ matrix.arch }}"
+    runs-on: [self-hosted, gpu]
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          # sm_70 (Volta) was dropped in CUDA 13.0 — see deploy/architectures.yml
+          - "75"   # NVIDIA T4 (Turing)
+          - "80"   # NVIDIA A100 (Ampere)
+          - "86"   # NVIDIA RTX 30xx (Ampere desktop)
+          - "89"   # NVIDIA RTX 40xx / RTX 2000 Ada (Ada Lovelace) — current runner
+          - "90"   # NVIDIA H100 / GH200 (Hopper)
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (CUDA, sm_${{ matrix.arch }})
+        shell: bash -l {0}
+        run: |
+          module load cuda/13.0
+          cmake -S . -B build-compile-check-cuda-${{ matrix.arch }} \
+            -DPHIRST_BACKEND=CUDA \
+            -DPHIRST_GPU_ARCH=${{ matrix.arch }} \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build (CUDA, sm_${{ matrix.arch }})
+        shell: bash -l {0}
+        run: |
+          module load cuda/13.0
+          cmake --build build-compile-check-cuda-${{ matrix.arch }} --parallel
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf build-compile-check-cuda-${{ matrix.arch }}

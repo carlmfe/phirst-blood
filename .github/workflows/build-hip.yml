@@ -1,0 +1,54 @@
+name: Build (HIP)
+
+# Full build-and-test workflow for the native HIP backend on AMD hardware.
+# Requires a self-hosted runner with label 'amd' and ROCm 6.3 available as a module.
+#
+# Strategy (mirrors build-cuda.yml):
+#   1. Build examples with HIP to confirm the backend compiles on real hardware.
+#   2. Build and run the test suite compiled with PHIRST_BACKEND=HIP.
+#      The HIP language is enabled via add_subdirectory(tests) in the root build,
+#      so test sources are compiled as HIP and exercise the HIP backend code paths.
+#
+# GPU architecture: auto-detected via rocm_agent_enumerator on the runner;
+# override with -DPHIRST_GPU_ARCH=gfxNNNN if needed.
+
+# Disabled: no AMD runner available yet. Re-enable by restoring the 'on:' triggers
+# when an AMD self-hosted runner with label 'amd' is registered.
+on:
+  workflow_dispatch:  # manual trigger only
+
+jobs:
+  build-hip:
+    runs-on: [self-hosted, amd]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure (HIP backend + tests)
+        shell: bash -l {0}
+        run: |
+          module load rocm/6.3
+          cmake -S . -B build-hip \
+            -DPHIRST_BACKEND=HIP \
+            -DPHIRST_BUILD_TESTS=ON \
+            -DCMAKE_BUILD_TYPE=Release
+          # PHIRST_GPU_ARCH is omitted intentionally: CMake auto-detects the
+          # runner GPU architecture via rocm_agent_enumerator.
+
+      - name: Build
+        shell: bash -l {0}
+        run: |
+          module load rocm/6.3
+          cmake --build build-hip --parallel
+
+      - name: Run tests
+        shell: bash -l {0}
+        run: |
+          module load rocm/6.3
+          ctest --test-dir build-hip --output-on-failure
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf build-hip
