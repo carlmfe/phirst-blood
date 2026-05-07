@@ -85,10 +85,13 @@ else() # SERIAL (default) — also used for standalone cmake -S tests
     target_compile_definitions(test_phirst PRIVATE PHIRST_BACKEND_SERIAL)
 endif()
 
-if(TARGET GTest::gtest_main)
-    target_link_libraries(test_phirst PRIVATE GTest::gtest_main)
+# Link against GTest::gtest (no bundled main) — test_phirst.cpp provides its own
+# main() for Kokkos initialize/finalize. Linking gtest_main would cause a
+# multiple-definition error.
+if(TARGET GTest::gtest)
+    target_link_libraries(test_phirst PRIVATE GTest::gtest)
 else()
-    target_link_libraries(test_phirst PRIVATE gtest_main)
+    target_link_libraries(test_phirst PRIVATE gtest)
 endif()
 
 include(GoogleTest)
