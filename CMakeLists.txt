@@ -193,6 +193,9 @@ string(TOLOWER "ex_eggholder_${PHIRST_BACKEND}" EXENAME_EGG)
 # Common Settings
 # =============================================================================
 
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
 # Default to Release build for good performance
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
@@ -205,6 +208,18 @@ option(PHIRST_BUILD_TESTS "Build the GoogleTest suite alongside the examples" OF
 if(PHIRST_BUILD_TESTS)
     enable_testing()
 endif()
+
+# Examples: ON when building as top-level project, OFF when used as subdirectory
+if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
+    set(_phirst_default_examples ON)
+else()
+    set(_phirst_default_examples OFF)
+endif()
+option(PHIRST_BUILD_EXAMPLES "Build example executables" ${_phirst_default_examples})
+
+# Variables for package config template (populated per-backend below)
+set(PHIRST_SYCL_BACKEND "")
+set(PHIRST_SYCL_CUDA_ARCH "")
 
 # Source files
 set(SOURCES_DY examples/drell_yan.cpp)
@@ -220,14 +235,23 @@ if(PHIRST_BACKEND STREQUAL "SERIAL")
     # ---------------------------
     set(CMAKE_CXX_STANDARD 20)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
-    
-    add_executable(${EXENAME_DY} ${SOURCES_DY})
-    target_include_directories(${EXENAME_DY} PRIVATE include)
-    target_compile_definitions(${EXENAME_DY} PRIVATE PHIRST_BACKEND_SERIAL)
 
-    add_executable(${EXENAME_EGG} ${SOURCES_EGG})
-    target_include_directories(${EXENAME_EGG} PRIVATE include)
-    target_compile_definitions(${EXENAME_EGG} PRIVATE PHIRST_BACKEND_SERIAL)
+    add_library(phirst_serial INTERFACE)
+    add_library(phirst::serial ALIAS phirst_serial)
+    target_include_directories(phirst_serial INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    )
+    target_compile_definitions(phirst_serial INTERFACE PHIRST_BACKEND_SERIAL)
+    set(_PHIRST_EXPORT_TARGET phirst_serial)
+
+    if(PHIRST_BUILD_EXAMPLES)
+        add_executable(${EXENAME_DY} ${SOURCES_DY})
+        target_link_libraries(${EXENAME_DY} PRIVATE phirst::serial)
+
+        add_executable(${EXENAME_EGG} ${SOURCES_EGG})
+        target_link_libraries(${EXENAME_EGG} PRIVATE phirst::serial)
+    endif()
 
     if(PHIRST_BUILD_TESTS)
         add_subdirectory(tests)
@@ -246,7 +270,7 @@ elseif(PHIRST_BACKEND STREQUAL "CUDA")
         message(FATAL_ERROR "CUDA compiler not found. Use -DPHIRST_BACKEND=SERIAL for CPU build.")
     endif()
     enable_language(CUDA)
-    
+
     set(CMAKE_CUDA_STANDARD 20)
     set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
@@ -262,22 +286,27 @@ elseif(PHIRST_BACKEND STREQUAL "CUDA")
         message(STATUS "CUDA architectures (cached): ${CMAKE_CUDA_ARCHITECTURES}")
     endif()
 
-    # For CUDA, rename .cpp to .cu
-    set_source_files_properties(examples/drell_yan.cpp examples/eggholder.cpp PROPERTIES LANGUAGE CUDA)
-
-    add_executable(${EXENAME_DY} ${SOURCES_DY})
-    target_include_directories(${EXENAME_DY} PRIVATE include)
-    target_compile_definitions(${EXENAME_DY} PRIVATE PHIRST_BACKEND_CUDA)
-    target_compile_options(${EXENAME_DY} PRIVATE
+    add_library(phirst_cuda INTERFACE)
+    add_library(phirst::cuda ALIAS phirst_cuda)
+    target_include_directories(phirst_cuda INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    )
+    target_compile_definitions(phirst_cuda INTERFACE PHIRST_BACKEND_CUDA)
+    target_compile_options(phirst_cuda INTERFACE
         $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>
     )
+    set(_PHIRST_EXPORT_TARGET phirst_cuda)
 
-    add_executable(${EXENAME_EGG} ${SOURCES_EGG})
-    target_include_directories(${EXENAME_EGG} PRIVATE include)
-    target_compile_definitions(${EXENAME_EGG} PRIVATE PHIRST_BACKEND_CUDA)
-    target_compile_options(${EXENAME_EGG} PRIVATE
-        $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>
-    )
+    if(PHIRST_BUILD_EXAMPLES)
+        set_source_files_properties(examples/drell_yan.cpp examples/eggholder.cpp PROPERTIES LANGUAGE CUDA)
+
+        add_executable(${EXENAME_DY} ${SOURCES_DY})
+        target_link_libraries(${EXENAME_DY} PRIVATE phirst::cuda)
+
+        add_executable(${EXENAME_EGG} ${SOURCES_EGG})
+        target_link_libraries(${EXENAME_EGG} PRIVATE phirst::cuda)
+    endif()
 
     if(PHIRST_BUILD_TESTS)
         add_subdirectory(tests)
@@ -289,18 +318,26 @@ elseif(PHIRST_BACKEND STREQUAL "KOKKOS")
     # ---------------------------
     # Do NOT set CMAKE_CXX_STANDARD before find_package(Kokkos)!
     # Kokkos sets its own compiler flags based on how it was built.
-    
-    find_package(Kokkos REQUIRED)
-    
-    add_executable(${EXENAME_DY} ${SOURCES_DY})
-    target_include_directories(${EXENAME_DY} PRIVATE include)
-    target_compile_definitions(${EXENAME_DY} PRIVATE PHIRST_BACKEND_KOKKOS)
-    target_link_libraries(${EXENAME_DY} PRIVATE Kokkos::kokkos)
 
-    add_executable(${EXENAME_EGG} ${SOURCES_EGG})
-    target_include_directories(${EXENAME_EGG} PRIVATE include)
-    target_compile_definitions(${EXENAME_EGG} PRIVATE PHIRST_BACKEND_KOKKOS)
-    target_link_libraries(${EXENAME_EGG} PRIVATE Kokkos::kokkos)
+    find_package(Kokkos REQUIRED)
+
+    add_library(phirst_kokkos INTERFACE)
+    add_library(phirst::kokkos ALIAS phirst_kokkos)
+    target_include_directories(phirst_kokkos INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    )
+    target_compile_definitions(phirst_kokkos INTERFACE PHIRST_BACKEND_KOKKOS)
+    target_link_libraries(phirst_kokkos INTERFACE Kokkos::kokkos)
+    set(_PHIRST_EXPORT_TARGET phirst_kokkos)
+
+    if(PHIRST_BUILD_EXAMPLES)
+        add_executable(${EXENAME_DY} ${SOURCES_DY})
+        target_link_libraries(${EXENAME_DY} PRIVATE phirst::kokkos)
+
+        add_executable(${EXENAME_EGG} ${SOURCES_EGG})
+        target_link_libraries(${EXENAME_EGG} PRIVATE phirst::kokkos)
+    endif()
 
     if(PHIRST_BUILD_TESTS)
         add_subdirectory(tests)
@@ -312,12 +349,12 @@ elseif(PHIRST_BACKEND STREQUAL "ALPAKA")
     # ---------------------------
     set(ALPAKA_BACKEND "CPU" CACHE STRING "Alpaka sub-backend: CUDA, CPU, OMP")
     set_property(CACHE ALPAKA_BACKEND PROPERTY STRINGS CUDA CPU OMP)
-    
+
     message(STATUS "Alpaka sub-backend: ${ALPAKA_BACKEND}")
-    
+
     include(CheckLanguage)
     check_language(CUDA)
-    
+
     if(ALPAKA_BACKEND STREQUAL "CUDA" AND CMAKE_CUDA_COMPILER)
         enable_language(CUDA)
         if(PHIRST_GPU_ARCH)
@@ -339,15 +376,23 @@ elseif(PHIRST_BACKEND STREQUAL "ALPAKA")
 
     find_package(alpaka REQUIRED)
 
-    alpaka_add_executable(${EXENAME_DY} ${SOURCES_DY})
-    target_include_directories(${EXENAME_DY} PRIVATE include)
-    target_compile_definitions(${EXENAME_DY} PRIVATE PHIRST_BACKEND_ALPAKA)
-    target_link_libraries(${EXENAME_DY} PRIVATE alpaka::alpaka)
+    add_library(phirst_alpaka INTERFACE)
+    add_library(phirst::alpaka ALIAS phirst_alpaka)
+    target_include_directories(phirst_alpaka INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    )
+    target_compile_definitions(phirst_alpaka INTERFACE PHIRST_BACKEND_ALPAKA)
+    target_link_libraries(phirst_alpaka INTERFACE alpaka::alpaka)
+    set(_PHIRST_EXPORT_TARGET phirst_alpaka)
 
-    alpaka_add_executable(${EXENAME_EGG} ${SOURCES_EGG})
-    target_include_directories(${EXENAME_EGG} PRIVATE include)
-    target_compile_definitions(${EXENAME_EGG} PRIVATE PHIRST_BACKEND_ALPAKA)
-    target_link_libraries(${EXENAME_EGG} PRIVATE alpaka::alpaka)
+    if(PHIRST_BUILD_EXAMPLES)
+        alpaka_add_executable(${EXENAME_DY} ${SOURCES_DY})
+        target_link_libraries(${EXENAME_DY} PRIVATE phirst::alpaka)
+
+        alpaka_add_executable(${EXENAME_EGG} ${SOURCES_EGG})
+        target_link_libraries(${EXENAME_EGG} PRIVATE phirst::alpaka)
+    endif()
 
     if(PHIRST_BUILD_TESTS)
         add_subdirectory(tests)
@@ -359,23 +404,24 @@ elseif(PHIRST_BACKEND STREQUAL "SYCL")
     # ---------------------------
     # Requires SYCL-enabled compiler (e.g., Intel DPC++, AdaptiveCpp)
     # Use: cmake -DCMAKE_CXX_COMPILER=clang++ -DPHIRST_BACKEND=SYCL ..
-    
+
     set(CMAKE_CXX_STANDARD 20)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
-    
+
     set(SYCL_BACKEND "CUDA" CACHE STRING "SYCL device backend: CUDA, INTEL")
     set_property(CACHE SYCL_BACKEND PROPERTY STRINGS CUDA INTEL)
-    
-    message(STATUS "SYCL device backend: ${SYCL_BACKEND}")
-    
-    add_executable(${EXENAME_DY} ${SOURCES_DY})
-    target_include_directories(${EXENAME_DY} PRIVATE include)
-    target_compile_definitions(${EXENAME_DY} PRIVATE PHIRST_BACKEND_SYCL)
 
-    add_executable(${EXENAME_EGG} ${SOURCES_EGG})
-    target_include_directories(${EXENAME_EGG} PRIVATE include)
-    target_compile_definitions(${EXENAME_EGG} PRIVATE PHIRST_BACKEND_SYCL)
-    
+    message(STATUS "SYCL device backend: ${SYCL_BACKEND}")
+
+    add_library(phirst_sycl INTERFACE)
+    add_library(phirst::sycl ALIAS phirst_sycl)
+    target_include_directories(phirst_sycl INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    )
+    target_compile_definitions(phirst_sycl INTERFACE PHIRST_BACKEND_SYCL)
+    set(_PHIRST_EXPORT_TARGET phirst_sycl)
+
     if(SYCL_BACKEND STREQUAL "CUDA")
         set(CUDA_GPU_ARCH "sm_70" CACHE STRING "CUDA GPU architecture for SYCL")
         if(PHIRST_GPU_ARCH)
@@ -384,31 +430,30 @@ elseif(PHIRST_BACKEND STREQUAL "SYCL")
         else()
             message(STATUS "SYCL CUDA arch: ${CUDA_GPU_ARCH}")
         endif()
-        target_compile_options(${EXENAME_DY} PRIVATE
+        set(PHIRST_SYCL_BACKEND "CUDA")
+        set(PHIRST_SYCL_CUDA_ARCH "${CUDA_GPU_ARCH}")
+        target_compile_options(phirst_sycl INTERFACE
             -fsycl
             -fsycl-targets=nvptx64-nvidia-cuda
             -Xsycl-target-backend
             --cuda-gpu-arch=${CUDA_GPU_ARCH}
         )
-        target_link_options(${EXENAME_DY} PRIVATE
-            -fsycl
-            -fsycl-targets=nvptx64-nvidia-cuda
-        )
-        target_compile_options(${EXENAME_EGG} PRIVATE
-            -fsycl
-            -fsycl-targets=nvptx64-nvidia-cuda
-            -Xsycl-target-backend
-            --cuda-gpu-arch=${CUDA_GPU_ARCH}
-        )
-        target_link_options(${EXENAME_EGG} PRIVATE
+        target_link_options(phirst_sycl INTERFACE
             -fsycl
             -fsycl-targets=nvptx64-nvidia-cuda
         )
     else()
-        target_compile_options(${EXENAME_DY} PRIVATE -fsycl)
-        target_link_options(${EXENAME_DY} PRIVATE -fsycl)
-        target_compile_options(${EXENAME_EGG} PRIVATE -fsycl)
-        target_link_options(${EXENAME_EGG} PRIVATE -fsycl)
+        set(PHIRST_SYCL_BACKEND "INTEL")
+        target_compile_options(phirst_sycl INTERFACE -fsycl)
+        target_link_options(phirst_sycl INTERFACE -fsycl)
+    endif()
+
+    if(PHIRST_BUILD_EXAMPLES)
+        add_executable(${EXENAME_DY} ${SOURCES_DY})
+        target_link_libraries(${EXENAME_DY} PRIVATE phirst::sycl)
+
+        add_executable(${EXENAME_EGG} ${SOURCES_EGG})
+        target_link_libraries(${EXENAME_EGG} PRIVATE phirst::sycl)
     endif()
 
     if(PHIRST_BUILD_TESTS)
@@ -453,17 +498,25 @@ elseif(PHIRST_BACKEND STREQUAL "HIP")
         message(STATUS "HIP architectures (cached): ${CMAKE_HIP_ARCHITECTURES}")
     endif()
 
-    # Compile .cpp sources as HIP (no file rename needed with CMake native HIP)
-    set_source_files_properties(examples/drell_yan.cpp examples/eggholder.cpp
-        PROPERTIES LANGUAGE HIP)
+    add_library(phirst_hip INTERFACE)
+    add_library(phirst::hip ALIAS phirst_hip)
+    target_include_directories(phirst_hip INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    )
+    target_compile_definitions(phirst_hip INTERFACE PHIRST_BACKEND_HIP)
+    set(_PHIRST_EXPORT_TARGET phirst_hip)
 
-    add_executable(${EXENAME_DY} ${SOURCES_DY})
-    target_include_directories(${EXENAME_DY} PRIVATE include)
-    target_compile_definitions(${EXENAME_DY} PRIVATE PHIRST_BACKEND_HIP)
+    if(PHIRST_BUILD_EXAMPLES)
+        set_source_files_properties(examples/drell_yan.cpp examples/eggholder.cpp
+            PROPERTIES LANGUAGE HIP)
 
-    add_executable(${EXENAME_EGG} ${SOURCES_EGG})
-    target_include_directories(${EXENAME_EGG} PRIVATE include)
-    target_compile_definitions(${EXENAME_EGG} PRIVATE PHIRST_BACKEND_HIP)
+        add_executable(${EXENAME_DY} ${SOURCES_DY})
+        target_link_libraries(${EXENAME_DY} PRIVATE phirst::hip)
+
+        add_executable(${EXENAME_EGG} ${SOURCES_EGG})
+        target_link_libraries(${EXENAME_EGG} PRIVATE phirst::hip)
+    endif()
 
     if(PHIRST_BUILD_TESTS)
         # HIP language is enabled above; tests/CMakeLists.txt will compile
@@ -476,15 +529,38 @@ else()
 endif()
 
 # =============================================================================
-# Installation (Optional)
+# Installation
 # =============================================================================
 
-include(GNUInstallDirs)
-
-# Install headers
+# Install headers (phirst library headers + contrib dependencies)
 install(DIRECTORY include/phirst
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
     FILES_MATCHING PATTERN "*.hpp"
+)
+install(DIRECTORY include/contrib
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp"
+)
+
+# Package config for find_package(phirst REQUIRED) support
+string(TOLOWER "${PHIRST_BACKEND}" _phirst_backend_lower)
+configure_package_config_file(
+    cmake/phirstConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/phirstConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/phirst
+    PATH_VARS CMAKE_INSTALL_INCLUDEDIR
+)
+
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/phirstConfigVersion.cmake
+    VERSION 0.1.0
+    COMPATIBILITY AnyNewerVersion
+)
+
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/phirstConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/phirstConfigVersion.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/phirst
 )
 
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")

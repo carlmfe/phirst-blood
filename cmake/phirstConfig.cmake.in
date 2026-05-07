@@ -1,0 +1,67 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+# Absolute path to installed headers
+set_and_check(PHIRST_INCLUDE_DIR "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@")
+
+# Backend and SYCL sub-configuration baked in at install time
+set(_phirst_backend "@PHIRST_BACKEND@")
+set(_phirst_sycl_backend "@PHIRST_SYCL_BACKEND@")
+set(_phirst_sycl_cuda_arch "@PHIRST_SYCL_CUDA_ARCH@")
+string(TOLOWER "${_phirst_backend}" _phirst_backend_lower)
+
+# Re-find framework dependencies so transitively linked targets are valid
+if(_phirst_backend STREQUAL "KOKKOS")
+    find_dependency(Kokkos REQUIRED)
+elseif(_phirst_backend STREQUAL "ALPAKA")
+    find_dependency(alpaka REQUIRED)
+endif()
+
+# Create phirst::<backend> as an INTERFACE IMPORTED target
+if(NOT TARGET "phirst::${_phirst_backend_lower}")
+    add_library("phirst::${_phirst_backend_lower}" INTERFACE IMPORTED)
+    set_property(TARGET "phirst::${_phirst_backend_lower}" PROPERTY
+        INTERFACE_INCLUDE_DIRECTORIES "${PHIRST_INCLUDE_DIR}"
+    )
+    set_property(TARGET "phirst::${_phirst_backend_lower}" PROPERTY
+        INTERFACE_COMPILE_DEFINITIONS "PHIRST_BACKEND_${_phirst_backend}"
+    )
+    if(_phirst_backend STREQUAL "KOKKOS")
+        set_property(TARGET "phirst::${_phirst_backend_lower}" APPEND PROPERTY
+            INTERFACE_LINK_LIBRARIES Kokkos::kokkos
+        )
+    elseif(_phirst_backend STREQUAL "ALPAKA")
+        set_property(TARGET "phirst::${_phirst_backend_lower}" APPEND PROPERTY
+            INTERFACE_LINK_LIBRARIES alpaka::alpaka
+        )
+    elseif(_phirst_backend STREQUAL "CUDA")
+        set_property(TARGET "phirst::${_phirst_backend_lower}" APPEND PROPERTY
+            INTERFACE_COMPILE_OPTIONS
+            "$<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>"
+        )
+    elseif(_phirst_backend STREQUAL "SYCL")
+        if(_phirst_sycl_backend STREQUAL "CUDA")
+            set_property(TARGET "phirst::${_phirst_backend_lower}" APPEND PROPERTY
+                INTERFACE_COMPILE_OPTIONS
+                "-fsycl;-fsycl-targets=nvptx64-nvidia-cuda;-Xsycl-target-backend;--cuda-gpu-arch=${_phirst_sycl_cuda_arch}"
+            )
+            set_property(TARGET "phirst::${_phirst_backend_lower}" APPEND PROPERTY
+                INTERFACE_LINK_OPTIONS
+                "-fsycl;-fsycl-targets=nvptx64-nvidia-cuda"
+            )
+        else()
+            set_property(TARGET "phirst::${_phirst_backend_lower}" APPEND PROPERTY
+                INTERFACE_COMPILE_OPTIONS "-fsycl"
+            )
+            set_property(TARGET "phirst::${_phirst_backend_lower}" APPEND PROPERTY
+                INTERFACE_LINK_OPTIONS "-fsycl"
+            )
+        endif()
+    endif()
+endif()
+
+set(phirst_FOUND TRUE)
+set("phirst_${_phirst_backend_lower}_FOUND" TRUE)
+
+check_required_components(phirst)
