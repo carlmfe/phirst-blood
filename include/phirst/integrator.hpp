@@ -116,7 +116,7 @@ struct MCWorkFunctor {
 /**
  * Monte Carlo integrator using RAMBO phase space generation.
  * 
- * @tparam Integrand Type with `evaluate(const double momenta[][4])` method.
+ * @tparam Integrand Type with `evaluate(const HEPUtils::P4 momenta[])` method.
  * @tparam NumParticles Number of final-state particles.
  * @tparam Algorithm Phase space algorithm (default: RamboAlgorithm).
  */

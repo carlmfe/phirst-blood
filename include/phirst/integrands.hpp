@@ -6,7 +6,7 @@
  * @file integrands.hpp
  * @brief Portable integrand implementations for Monte Carlo integration.
  * 
- * Each integrand must provide an `evaluate(const double momenta[][4])` method
+ * Each integrand must provide an `evaluate(const HEPUtils::P4 momenta[])` method
  * that computes the physics quantity from 4-momenta.
  */
 
