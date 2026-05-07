@@ -1,0 +1,43 @@
+name: Python (KOKKOS)
+
+on:
+  push:
+    branches: [main, "dev/**"]
+  pull_request:
+
+jobs:
+  build-python-kokkos:
+    runs-on: [self-hosted, gpu]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Python build/test deps
+        shell: bash -l {0}
+        run: |
+          which uv || true
+          if command -v uv >/dev/null 2>&1; then
+            uv pip install scikit-build-core nanobind pytest
+          else
+            pip install scikit-build-core nanobind pytest
+          fi
+
+      - name: Build Python bindings (Kokkos)
+        shell: bash -l {0}
+        run: |
+          module load kokkos/5.0.1
+          if command -v uv >/dev/null 2>&1; then
+            uv pip install -e . --no-build-isolation \
+              -Ccmake.args="-DPHIRST_BACKEND=KOKKOS"
+          else
+            pip install -e . --no-build-isolation \
+              -Ccmake.args="-DPHIRST_BACKEND=KOKKOS"
+          fi
+
+      - name: Run Python tests
+        shell: bash -l {0}
+        run: |
+          module load kokkos/5.0.1
+          pytest python/tests/ -v

@@ -1,0 +1,39 @@
+name: Python (SERIAL)
+
+on:
+  push:
+    branches: [main, "dev/**"]
+  pull_request:
+
+jobs:
+  build-python-serial:
+    runs-on: [self-hosted, gpu]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Python build/test deps
+        shell: bash -l {0}
+        run: |
+          which uv || true
+          if command -v uv >/dev/null 2>&1; then
+            uv pip install scikit-build-core nanobind pytest
+          else
+            pip install scikit-build-core nanobind pytest
+          fi
+
+      - name: Build Python bindings (serial)
+        shell: bash -l {0}
+        run: |
+          if command -v uv >/dev/null 2>&1; then
+            uv pip install -e . --no-build-isolation
+          else
+            pip install -e . --no-build-isolation
+          fi
+
+      - name: Run Python tests
+        shell: bash -l {0}
+        run: |
+          pytest python/tests/ -v
