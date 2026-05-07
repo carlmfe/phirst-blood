@@ -220,6 +220,7 @@ option(PHIRST_BUILD_EXAMPLES "Build example executables" ${_phirst_default_examp
 # Variables for package config template (populated per-backend below)
 set(PHIRST_SYCL_BACKEND "")
 set(PHIRST_SYCL_CUDA_ARCH "")
+set(PHIRST_SYCL_AMD_ARCH "")
 
 # Source files
 set(SOURCES_DY examples/drell_yan.cpp)
@@ -408,8 +409,8 @@ elseif(PHIRST_BACKEND STREQUAL "SYCL")
     set(CMAKE_CXX_STANDARD 20)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-    set(SYCL_BACKEND "CUDA" CACHE STRING "SYCL device backend: CUDA, INTEL")
-    set_property(CACHE SYCL_BACKEND PROPERTY STRINGS CUDA INTEL)
+    set(SYCL_BACKEND "CUDA" CACHE STRING "SYCL device backend: CUDA, INTEL, AMD")
+    set_property(CACHE SYCL_BACKEND PROPERTY STRINGS CUDA INTEL AMD)
 
     message(STATUS "SYCL device backend: ${SYCL_BACKEND}")
 
@@ -442,10 +443,38 @@ elseif(PHIRST_BACKEND STREQUAL "SYCL")
             -fsycl
             -fsycl-targets=nvptx64-nvidia-cuda
         )
-    else()
+    elseif(SYCL_BACKEND STREQUAL "AMD")
+        set(PHIRST_AMD_GPU_ARCH "gfx1100" CACHE STRING "AMD GPU architecture for SYCL/AMD (e.g. gfx1100)")
+        if(PHIRST_GPU_ARCH)
+            set(PHIRST_AMD_GPU_ARCH "${PHIRST_GPU_ARCH}" CACHE STRING "AMD GPU architecture for SYCL/AMD" FORCE)
+            message(STATUS "SYCL AMD arch (from PHIRST_GPU_ARCH): ${PHIRST_AMD_GPU_ARCH}")
+        else()
+            message(STATUS "SYCL AMD arch: ${PHIRST_AMD_GPU_ARCH}")
+        endif()
+        set(PHIRST_SYCL_BACKEND "AMD")
+        set(PHIRST_SYCL_AMD_ARCH "${PHIRST_AMD_GPU_ARCH}")
+        target_compile_options(phirst_sycl INTERFACE
+            -fsycl
+            -fsycl-targets=amdgcn-amd-amdhsa
+            -Xsycl-target-backend
+            --offload-arch=${PHIRST_AMD_GPU_ARCH}
+        )
+        target_link_options(phirst_sycl INTERFACE
+            -fsycl
+            -fsycl-targets=amdgcn-amd-amdhsa
+        )
+    elseif(SYCL_BACKEND STREQUAL "INTEL")
         set(PHIRST_SYCL_BACKEND "INTEL")
-        target_compile_options(phirst_sycl INTERFACE -fsycl)
-        target_link_options(phirst_sycl INTERFACE -fsycl)
+        target_compile_options(phirst_sycl INTERFACE
+            -fsycl
+            -fsycl-targets=spir64_gen
+        )
+        target_link_options(phirst_sycl INTERFACE
+            -fsycl
+            -fsycl-targets=spir64_gen
+        )
+    else()
+        message(FATAL_ERROR "Unknown SYCL_BACKEND '${SYCL_BACKEND}'. Valid values: CUDA, INTEL, AMD")
     endif()
 
     if(PHIRST_BUILD_EXAMPLES)
