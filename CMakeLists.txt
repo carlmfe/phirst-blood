@@ -216,6 +216,7 @@ else()
     set(_phirst_default_examples OFF)
 endif()
 option(PHIRST_BUILD_EXAMPLES "Build example executables" ${_phirst_default_examples})
+option(PHIRST_NUMBA_BRIDGE "Build the Numba/cuLink bridge for CUDA Python device integrands" OFF)
 
 # Variables for package config template (populated per-backend below)
 set(PHIRST_SYCL_BACKEND "")
@@ -298,6 +299,64 @@ elseif(PHIRST_BACKEND STREQUAL "CUDA")
         $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>
     )
     set(_PHIRST_EXPORT_TARGET phirst_cuda)
+
+    if(PHIRST_NUMBA_BRIDGE)
+        find_package(CUDAToolkit REQUIRED)
+
+        set(_phirst_numba_bridge_object ${CMAKE_CURRENT_BINARY_DIR}/phirst_numba_bridge_device.o)
+        set(_phirst_numba_bridge_arch_flag "")
+        if(CMAKE_CUDA_ARCHITECTURES)
+            set(_phirst_numba_bridge_arch_list ${CMAKE_CUDA_ARCHITECTURES})
+            list(GET _phirst_numba_bridge_arch_list 0 _phirst_numba_bridge_arch)
+            if(_phirst_numba_bridge_arch MATCHES "^[0-9]+$")
+                set(_phirst_numba_bridge_arch_flag -arch=sm_${_phirst_numba_bridge_arch})
+            endif()
+        endif()
+
+        add_custom_command(
+            OUTPUT ${_phirst_numba_bridge_object}
+            COMMAND ${CMAKE_CUDA_COMPILER}
+                --compile
+                -rdc=true
+                -std=c++20
+                -Xcompiler=-fPIC
+                ${_phirst_numba_bridge_arch_flag}
+                --expt-extended-lambda
+                -DPHIRST_BACKEND_CUDA
+                -I${CMAKE_CURRENT_SOURCE_DIR}/include
+                -o ${_phirst_numba_bridge_object}
+                ${CMAKE_CURRENT_SOURCE_DIR}/python/src/numba_bridge.cu
+            DEPENDS
+                ${CMAKE_CURRENT_SOURCE_DIR}/python/src/numba_bridge.cu
+                ${CMAKE_CURRENT_SOURCE_DIR}/include/phirst/backend/numba_bridge.cuh
+                ${CMAKE_CURRENT_SOURCE_DIR}/include/phirst/backend/random.hpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/include/phirst/backend/math.hpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/include/phirst/backend/config.hpp
+            VERBATIM
+        )
+        add_custom_target(phirst_numba_bridge_rdc DEPENDS ${_phirst_numba_bridge_object})
+
+        add_library(phirst_numba_bridge SHARED python/src/numba_launcher.cu)
+        add_dependencies(phirst_numba_bridge phirst_numba_bridge_rdc)
+        target_include_directories(phirst_numba_bridge PRIVATE include)
+        target_link_libraries(phirst_numba_bridge PRIVATE CUDA::cuda_driver CUDA::cudart ${CMAKE_DL_LIBS})
+        target_compile_definitions(phirst_numba_bridge PRIVATE
+            PHIRST_BACKEND_CUDA
+            PHIRST_NUMBA_BRIDGE_OBJECT_FILENAME="phirst_numba_bridge_device.o"
+        )
+        target_compile_options(phirst_numba_bridge PRIVATE
+            $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>
+        )
+        set_target_properties(phirst_numba_bridge PROPERTIES
+            CUDA_SEPARABLE_COMPILATION ON
+            CUDA_RESOLVE_DEVICE_SYMBOLS OFF
+        )
+        add_custom_command(TARGET phirst_numba_bridge POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${_phirst_numba_bridge_object}
+                $<TARGET_FILE_DIR:phirst_numba_bridge>/phirst_numba_bridge_device.o
+        )
+    endif()
 
     if(PHIRST_BUILD_EXAMPLES)
         set_source_files_properties(examples/drell_yan.cpp examples/eggholder.cpp PROPERTIES LANGUAGE CUDA)
@@ -564,7 +623,7 @@ endif()
 # Install headers (phirst library headers + contrib dependencies)
 install(DIRECTORY include/phirst
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-    FILES_MATCHING PATTERN "*.hpp"
+    FILES_MATCHING PATTERN "*.hpp" PATTERN "*.cuh"
 )
 install(DIRECTORY include/contrib
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
@@ -591,6 +650,11 @@ install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/phirstConfigVersion.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/phirst
 )
+
+if(TARGET phirst_numba_bridge)
+    install(TARGETS phirst_numba_bridge LIBRARY DESTINATION phirst)
+    install(FILES ${_phirst_numba_bridge_object} DESTINATION phirst RENAME phirst_numba_bridge_device.o)
+endif()
 
 # =============================================================================
 # Python Bindings (nanobind + scikit-build-core)
