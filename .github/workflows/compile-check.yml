@@ -8,9 +8,9 @@
 #
 # Jobs:
 #   nvidia-toolchains — CUDA (5 arches), Alpaka/CUDA (sm_89), Kokkos/CUDA (sm_89)
-#   hip-toolchains    — HIP (4 arches), Kokkos/HIP; Alpaka/HIP disabled (CMakeLists.txt task pending)
+#   hip-toolchains    — HIP (4 arches), Kokkos/HIP (gfx1100), Alpaka/HIP (gfx1100)
 #   sycl-cuda         — SYCL/CUDA (5 arches)
-#   sycl-intel        — SYCL/Intel JIT, Kokkos/SYCL; Alpaka/SYCL disabled (CMakeLists.txt task pending)
+#   sycl-intel        — SYCL/Intel JIT, Kokkos/SYCL; Alpaka/SYCL disabled (needs libigc1)
 #   sycl-amd          — DISABLED (sycl/amd module not yet built)
 #
 # sm_70 (Volta) is excluded from all NVIDIA jobs — CUDA 13.0 dropped sm_70 support.
@@ -101,7 +101,6 @@ jobs:
           module load cuda/13.0 kokkos/5.0.1 alpaka/2.0.0_cuda
           cmake -S . -B build-alpaka-cuda-89 \
             -DPHIRST_BACKEND=ALPAKA \
-            -DALPAKA_BACKEND=CUDA \
             -DPHIRST_GPU_ARCH=89 \
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-alpaka-cuda-89 --parallel && rm -rf build-alpaka-cuda-89
@@ -178,15 +177,11 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-kokkos-hip --parallel && rm -rf build-kokkos-hip
 
-      # disabled: CMakeLists.txt needs ALPAKA_BACKEND=HIP support (C++ Dev task)
-      # Module alpaka/2.0.0_hip6.3 is installed and ready.
-      - name: "Alpaka/HIP gfx1100 (disabled — awaiting ALPAKA_BACKEND=HIP in CMakeLists.txt)"
-        if: false
+      - name: "Alpaka/HIP gfx1100 (RDNA3)"
         run: |
           module load rocm/6.3 alpaka/2.0.0_hip6.3
           cmake -S . -B build-alpaka-hip-gfx1100 \
             -DPHIRST_BACKEND=ALPAKA \
-            -DALPAKA_BACKEND=HIP \
             -DCMAKE_CXX_COMPILER=hipcc \
             -DPHIRST_GPU_ARCH=gfx1100 \
             -DCMAKE_BUILD_TYPE=Release
@@ -262,9 +257,9 @@ jobs:
           cmake --build build-sycl-cuda-sm_90 --parallel && rm -rf build-sycl-cuda-sm_90
 
   # ---------------------------------------------------------------------------
-  # Job 4: SYCL/Intel + future Kokkos/SYCL and Alpaka/SYCL (disabled pending modules)
-  # Uses JIT compilation (-fsycl only); covers all Intel GPU targets at runtime.
-  # AOT (spir64_gen) requires CMakeLists.txt Intel AOT flags — a future C++ Dev task.
+  # Job 4: SYCL/Intel + Kokkos/SYCL; Alpaka/SYCL disabled pending Intel Compute Runtime
+  # Uses AOT compilation via spir64_gen; covers all Intel GPU targets.
+  # Alpaka/SYCL needs: apt install libigc1 (Intel Graphics Compiler library)
   # ---------------------------------------------------------------------------
   sycl-intel:
     name: "SYCL/Intel toolchains"
@@ -295,16 +290,18 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-kokkos-sycl --parallel && rm -rf build-kokkos-sycl
 
-      # disabled: CMakeLists.txt needs ALPAKA_BACKEND=SYCL support (C++ Dev task)
-      # Module alpaka/2.0.0_sycl is installed and ready.
-      - name: "Alpaka/SYCL (disabled — awaiting ALPAKA_BACKEND=SYCL in CMakeLists.txt)"
+      # Alpaka/SYCL Intel GPU AOT requires the full Intel Compute Runtime stack:
+      #   apt install intel-ocloc libigc1
+      # libigc1 is not yet installed. Disabled until IGC stack is available.
+      - name: "Alpaka/SYCL (disabled — libigc1 / Intel Compute Runtime not installed)"
         if: false
         run: |
           module load oneapi/2026.0 alpaka/2.0.0_sycl
           cmake -S . -B build-alpaka-sycl \
             -DPHIRST_BACKEND=ALPAKA \
-            -DALPAKA_BACKEND=SYCL \
             -DCMAKE_CXX_COMPILER=icpx \
+            -Dalpaka_SYCL_ONEAPI_GPU=ON \
+            -Dalpaka_SYCL_ONEAPI_GPU_DEVICES=intel_gpu_pvc \
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-alpaka-sycl --parallel && rm -rf build-alpaka-sycl
 

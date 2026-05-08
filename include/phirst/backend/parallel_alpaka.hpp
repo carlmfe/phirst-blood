@@ -13,6 +13,10 @@ namespace alpaka_impl {
 
 #if defined(ALPAKA_ACC_GPU_CUDA_ENABLED)
     using AlpakaTag = alpaka::TagGpuCudaRt;
+#elif defined(ALPAKA_ACC_GPU_HIP_ENABLED)
+    using AlpakaTag = alpaka::TagGpuHipRt;
+#elif defined(ALPAKA_ACC_SYCL_ENABLED)
+    using AlpakaTag = alpaka::TagGpuSyclIntel;
 #elif defined(ALPAKA_ACC_CPU_B_OMP2_T_SEQ_ENABLED)
     using AlpakaTag = alpaka::TagCpuOmp2Blocks;
 #else

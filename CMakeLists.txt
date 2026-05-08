@@ -348,15 +348,43 @@ elseif(PHIRST_BACKEND STREQUAL "ALPAKA")
     # ---------------------------
     # Alpaka Backend
     # ---------------------------
-    set(ALPAKA_BACKEND "CPU" CACHE STRING "Alpaka sub-backend: CUDA, CPU, OMP")
-    set_property(CACHE ALPAKA_BACKEND PROPERTY STRINGS CUDA CPU OMP)
+    # The backend (CUDA / HIP / SYCL / CPU) is baked into the installed Alpaka
+    # library in alpakaTargets.cmake.  We probe that file before find_package()
+    # to set the right alpaka_ACC_*_ENABLE option and enable the appropriate
+    # CMake language.  No ALPAKA_BACKEND cache variable is needed; just point
+    # CMAKE_PREFIX_PATH or alpaka_ROOT at the desired Alpaka installation.
 
-    message(STATUS "Alpaka sub-backend: ${ALPAKA_BACKEND}")
+    # Locate alpakaTargets.cmake (alpaka_ROOT is set by module or -Dalpaka_ROOT=).
+    set(_alpaka_targets_file
+        "$ENV{alpaka_ROOT}/lib/cmake/alpaka/alpakaTargets.cmake")
+    if(NOT EXISTS "${_alpaka_targets_file}" AND DEFINED alpaka_ROOT)
+        set(_alpaka_targets_file
+            "${alpaka_ROOT}/lib/cmake/alpaka/alpakaTargets.cmake")
+    endif()
 
-    include(CheckLanguage)
-    check_language(CUDA)
+    if(EXISTS "${_alpaka_targets_file}")
+        file(READ "${_alpaka_targets_file}" _alpaka_targets_content)
+        if(_alpaka_targets_content MATCHES "ALPAKA_ACC_GPU_CUDA_ENABLED")
+            set(_alpaka_detected_backend "CUDA")
+        elseif(_alpaka_targets_content MATCHES "ALPAKA_ACC_GPU_HIP_ENABLED")
+            set(_alpaka_detected_backend "HIP")
+        elseif(_alpaka_targets_content MATCHES "ALPAKA_ACC_SYCL_ENABLED")
+            set(_alpaka_detected_backend "SYCL")
+        else()
+            set(_alpaka_detected_backend "CPU")
+        endif()
+        unset(_alpaka_targets_content)
+    else()
+        message(WARNING "Could not locate alpakaTargets.cmake -- "
+                        "defaulting to CPU/Serial. "
+                        "Set alpaka_ROOT or CMAKE_PREFIX_PATH to the Alpaka install prefix.")
+        set(_alpaka_detected_backend "CPU")
+    endif()
+    unset(_alpaka_targets_file)
 
-    if(ALPAKA_BACKEND STREQUAL "CUDA" AND CMAKE_CUDA_COMPILER)
+    message(STATUS "Alpaka backend detected: ${_alpaka_detected_backend}")
+
+    if(_alpaka_detected_backend STREQUAL "CUDA")
         enable_language(CUDA)
         if(PHIRST_GPU_ARCH)
             set(CMAKE_CUDA_ARCHITECTURES "${PHIRST_GPU_ARCH}" CACHE STRING "CUDA architectures" FORCE)
@@ -365,18 +393,22 @@ elseif(PHIRST_BACKEND STREQUAL "ALPAKA")
             set(CMAKE_CUDA_ARCHITECTURES "native" CACHE STRING "CUDA architectures")
         endif()
         set(alpaka_ACC_GPU_CUDA_ENABLE ON)
-        add_compile_definitions(ALPAKA_USE_CUDA)
-    elseif(ALPAKA_BACKEND STREQUAL "OMP")
-        find_package(OpenMP REQUIRED)
-        set(alpaka_ACC_CPU_B_OMP2_T_SEQ_ENABLE ON)
-        add_compile_definitions(ALPAKA_USE_CPU_OMP)
-    else()
-        set(alpaka_ACC_CPU_B_SEQ_T_SEQ_ENABLE ON)
-        add_compile_definitions(ALPAKA_USE_CPU_SERIAL)
+    elseif(_alpaka_detected_backend STREQUAL "HIP")
+        enable_language(HIP)
+        if(PHIRST_GPU_ARCH)
+            set(CMAKE_HIP_ARCHITECTURES "${PHIRST_GPU_ARCH}" CACHE STRING "HIP architectures" FORCE)
+            message(STATUS "Alpaka HIP architectures (from PHIRST_GPU_ARCH): ${CMAKE_HIP_ARCHITECTURES}")
+        endif()
+        set(alpaka_ACC_GPU_HIP_ENABLE ON)
+    elseif(_alpaka_detected_backend STREQUAL "SYCL")
+        set(alpaka_ACC_SYCL_ENABLE ON)
+        # SYCL target (CPU/GPU) must be set by the caller via -Dalpaka_SYCL_ONEAPI_GPU=ON
+        # (Intel GPU, requires libigc1 + intel-ocloc) or -Dalpaka_SYCL_ONEAPI_CPU=ON.
+        # SYCL compiler flags are propagated by alpaka::alpaka; no CMake language needed.
     endif()
+    unset(_alpaka_detected_backend)
 
     find_package(alpaka REQUIRED)
-
     add_library(phirst_alpaka INTERFACE)
     add_library(phirst::alpaka ALIAS phirst_alpaka)
     target_include_directories(phirst_alpaka INTERFACE
