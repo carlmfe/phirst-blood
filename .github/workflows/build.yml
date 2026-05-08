@@ -1,0 +1,106 @@
+# Consolidated build-and-test workflow for all NVIDIA-runner backends.
+#
+# Sequential steps with continue-on-error allow all backends to be tested
+# even if one fails; per-step ✅/❌ in the GitHub UI provides full visibility.
+#
+# Two jobs:
+#   nvidia-builds — SERIAL, CUDA, Kokkos, Alpaka (sequential, continue-on-error)
+#   sycl-build    — SYCL/CUDA (separate job; uses a different compiler toolchain)
+#
+# build-hip.yml is unchanged (workflow_dispatch only; AMD runner).
+
+name: Build
+
+on:
+  push:
+    branches: [main, "dev/**"]
+  pull_request:
+
+jobs:
+  nvidia-builds:
+    runs-on: [self-hosted, gpu]
+    defaults:
+      run:
+        shell: bash -l {0}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build & test — SERIAL
+        continue-on-error: true
+        run: |
+          cmake -S . -B build-serial \
+            -DPHIRST_BACKEND=SERIAL \
+            -DPHIRST_BUILD_TESTS=ON \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-serial --parallel
+          ctest --test-dir build-serial --output-on-failure
+          rm -rf build-serial
+
+      - name: Build & test — CUDA
+        continue-on-error: true
+        run: |
+          module load cuda/13.0
+          cmake -S . -B build-cuda \
+            -DPHIRST_BACKEND=CUDA \
+            -DPHIRST_BUILD_TESTS=ON \
+            -DPHIRST_GPU_ARCH=89 \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-cuda --parallel
+          ctest --test-dir build-cuda --output-on-failure
+          rm -rf build-cuda
+
+      - name: Build & test — Kokkos
+        continue-on-error: true
+        # Note: kokkos/5.0.1 is built with CUDA; arch is baked into the module (sm_89)
+        # Do not override CMAKE_CXX_STANDARD; the module sets the compiler correctly.
+        run: |
+          module load kokkos/5.0.1
+          cmake -S . -B build-kokkos \
+            -DPHIRST_BACKEND=KOKKOS \
+            -DPHIRST_BUILD_TESTS=ON \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-kokkos --parallel
+          ctest --test-dir build-kokkos --output-on-failure
+          rm -rf build-kokkos
+
+      - name: Build & test — Alpaka
+        continue-on-error: true
+        run: |
+          module load alpaka/2.0.0_cuda
+          cmake -S . -B build-alpaka \
+            -DPHIRST_BACKEND=ALPAKA \
+            -DALPAKA_BACKEND=CUDA \
+            -DPHIRST_BUILD_TESTS=ON \
+            -DPHIRST_GPU_ARCH=89 \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-alpaka --parallel
+          ctest --test-dir build-alpaka --output-on-failure
+          rm -rf build-alpaka
+
+  sycl-build:
+    runs-on: [self-hosted, gpu]
+    defaults:
+      run:
+        shell: bash -l {0}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build & test — SYCL/CUDA
+        run: |
+          module load sycl/cuda
+          cmake -S . -B build-sycl \
+            -DPHIRST_BACKEND=SYCL \
+            -DPHIRST_BUILD_TESTS=ON \
+            -DSYCL_BACKEND=CUDA \
+            -DPHIRST_GPU_ARCH=sm_89 \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-sycl --parallel
+          ctest --test-dir build-sycl --output-on-failure
+          rm -rf build-sycl
