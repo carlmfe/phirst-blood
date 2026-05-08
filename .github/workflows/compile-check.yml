@@ -8,9 +8,9 @@
 #
 # Jobs:
 #   nvidia-toolchains — CUDA (5 arches), Alpaka/CUDA (sm_89), Kokkos/CUDA (sm_89)
-#   hip-toolchains    — HIP (4 arches); Kokkos/HIP and Alpaka/HIP disabled (modules pending)
+#   hip-toolchains    — HIP (4 arches), Kokkos/HIP; Alpaka/HIP disabled (CMakeLists.txt task pending)
 #   sycl-cuda         — SYCL/CUDA (5 arches)
-#   sycl-intel        — SYCL/Intel JIT; Kokkos/SYCL and Alpaka/SYCL disabled (modules pending)
+#   sycl-intel        — SYCL/Intel JIT, Kokkos/SYCL; Alpaka/SYCL disabled (CMakeLists.txt task pending)
 #   sycl-amd          — DISABLED (sycl/amd module not yet built)
 #
 # sm_70 (Volta) is excluded from all NVIDIA jobs — CUDA 13.0 dropped sm_70 support.
@@ -167,24 +167,27 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-hip-gfx1100 --parallel && rm -rf build-hip-gfx1100
 
-      # disabled: kokkos/5.0.1-hip module not yet installed
-      - name: "Kokkos/HIP gfx1100 (disabled)"
-        if: false
+      # kokkos/5.1.0-hip6.3 loads cuda/13.0 internally (likely a modulefile copy-paste;
+      # harmless for cross-compilation since we pass -DCMAKE_CXX_COMPILER=hipcc explicitly).
+      - name: "Kokkos/HIP gfx1100 (RDNA3 — representative arch)"
         run: |
-          module load rocm/6.3 kokkos/5.0.1-hip
+          module load rocm/6.3 kokkos/5.1.0-hip6.3
           cmake -S . -B build-kokkos-hip \
             -DPHIRST_BACKEND=KOKKOS \
+            -DCMAKE_CXX_COMPILER=hipcc \
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-kokkos-hip --parallel && rm -rf build-kokkos-hip
 
-      # disabled: alpaka/2.0.0_hip module not yet installed + C++ Dev task needed (ALPAKA_BACKEND=HIP)
-      - name: "Alpaka/HIP gfx1100 (disabled)"
+      # disabled: CMakeLists.txt needs ALPAKA_BACKEND=HIP support (C++ Dev task)
+      # Module alpaka/2.0.0_hip6.3 is installed and ready.
+      - name: "Alpaka/HIP gfx1100 (disabled — awaiting ALPAKA_BACKEND=HIP in CMakeLists.txt)"
         if: false
         run: |
-          module load rocm/6.3 alpaka/2.0.0_hip
+          module load rocm/6.3 alpaka/2.0.0_hip6.3
           cmake -S . -B build-alpaka-hip-gfx1100 \
             -DPHIRST_BACKEND=ALPAKA \
             -DALPAKA_BACKEND=HIP \
+            -DCMAKE_CXX_COMPILER=hipcc \
             -DPHIRST_GPU_ARCH=gfx1100 \
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-alpaka-hip-gfx1100 --parallel && rm -rf build-alpaka-hip-gfx1100
@@ -283,18 +286,18 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-sycl-intel --parallel && rm -rf build-sycl-intel
 
-      # disabled: kokkos/5.0.1-sycl module not yet installed
-      - name: "Kokkos/SYCL (disabled)"
-        if: false
+      - name: "Kokkos/SYCL (Intel GPU via icpx)"
         run: |
-          module load oneapi/2026.0 kokkos/5.0.1-sycl
+          module load oneapi/2026.0 kokkos/5.1.0-sycl
           cmake -S . -B build-kokkos-sycl \
             -DPHIRST_BACKEND=KOKKOS \
+            -DCMAKE_CXX_COMPILER=icpx \
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-kokkos-sycl --parallel && rm -rf build-kokkos-sycl
 
-      # disabled: alpaka/2.0.0_sycl module not yet installed + C++ Dev task needed (ALPAKA_BACKEND=SYCL)
-      - name: "Alpaka/SYCL (disabled)"
+      # disabled: CMakeLists.txt needs ALPAKA_BACKEND=SYCL support (C++ Dev task)
+      # Module alpaka/2.0.0_sycl is installed and ready.
+      - name: "Alpaka/SYCL (disabled — awaiting ALPAKA_BACKEND=SYCL in CMakeLists.txt)"
         if: false
         run: |
           module load oneapi/2026.0 alpaka/2.0.0_sycl
