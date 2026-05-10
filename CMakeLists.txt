@@ -497,13 +497,13 @@ elseif(PHIRST_BACKEND STREQUAL "SYCL")
         )
     elseif(SYCL_BACKEND STREQUAL "INTEL")
         set(PHIRST_SYCL_BACKEND "INTEL")
+        # Use JIT compilation (portable): no -fsycl-targets specified.
+        # spir64_gen is not a valid ocloc device name, so we omit AOT and let icpx do JIT.
         target_compile_options(phirst_sycl INTERFACE
             -fsycl
-            -fsycl-targets=spir64_gen
         )
         target_link_options(phirst_sycl INTERFACE
             -fsycl
-            -fsycl-targets=spir64_gen
         )
     else()
         message(FATAL_ERROR "Unknown SYCL_BACKEND '${SYCL_BACKEND}'. Valid values: CUDA, INTEL, AMD")
