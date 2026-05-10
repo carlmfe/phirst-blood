@@ -257,9 +257,11 @@ jobs:
           cmake --build build-sycl-cuda-sm_90 --parallel && rm -rf build-sycl-cuda-sm_90
 
   # ---------------------------------------------------------------------------
-  # Job 4: SYCL/Intel + Kokkos/SYCL; Alpaka/SYCL disabled pending Intel Compute Runtime
-  # Uses AOT compilation via spir64_gen; covers all Intel GPU targets.
-  # Alpaka/SYCL needs: apt install libigc1 (Intel Graphics Compiler library)
+  # Job 4: SYCL/Intel + Kokkos/SYCL; Alpaka/SYCL disabled (redundant)
+  # SYCL/Intel uses JIT (bare -fsycl, no AOT) — portable across all Intel GPUs.
+  # Note: Alpaka's SYCL backend requires AOT (-fsycl-targets=spir64_*) which
+  # needs Intel Compute Runtime libraries (libigc1 for GPU, libsvml.so for CPU).
+  # Since PHIRST_BACKEND_SYCL already supports JIT, Alpaka/SYCL is redundant.
   # ---------------------------------------------------------------------------
   sycl-intel:
     name: "SYCL/Intel toolchains"
@@ -290,10 +292,12 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-kokkos-sycl --parallel && rm -rf build-kokkos-sycl
 
-      # Alpaka/SYCL Intel GPU AOT requires the full Intel Compute Runtime stack:
-      #   apt install intel-ocloc libigc1
-      # libigc1 is not yet installed. Disabled until IGC stack is available.
-      - name: "Alpaka/SYCL (disabled — libigc1 / Intel Compute Runtime not installed)"
+      # Alpaka/SYCL Intel GPU AOT requires AOT compilation with -fsycl-targets.
+      # This requires Intel Compute Runtime libraries (libigc1 for GPU or libsvml.so
+      # for CPU), which have complex subprocess linkage issues. Since
+      # PHIRST_BACKEND_SYCL already provides full SYCL support with JIT, Alpaka/SYCL
+      # is redundant. Keeping step for documentation; delete if never needed.
+      - name: "Alpaka/SYCL (disabled — use PHIRST_BACKEND_SYCL instead)"
         if: false
         run: |
           module load oneapi/2026.0 alpaka/2.0.0_sycl
