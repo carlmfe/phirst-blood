@@ -60,7 +60,8 @@ void deep_copy(DeviceBuffer<T>& dest, const T* hostSrc, int64_t n) {
     AlpakaQueue queue(devAcc);
     AlpakaIdx extent = static_cast<AlpakaIdx>(n);
     auto hostBuf = alpaka::allocBuf<T, AlpakaIdx>(devHost, extent);
-    for (int64_t i = 0; i < n; ++i) hostBuf[i] = hostSrc[i];
+    T* hostPtr = alpaka::getPtrNative(hostBuf);
+    for (int64_t i = 0; i < n; ++i) hostPtr[i] = hostSrc[i];
     alpaka::memcpy(queue, dest.buffer(), hostBuf, extent);
     alpaka::wait(queue);
 }
@@ -74,7 +75,8 @@ void deep_copy(T* hostDest, const DeviceBuffer<T>& src, int64_t n) {
     auto hostBuf = alpaka::allocBuf<T, AlpakaIdx>(devHost, extent);
     alpaka::memcpy(queue, hostBuf, const_cast<DeviceBuffer<T>&>(src).buffer(), extent);
     alpaka::wait(queue);
-    for (int64_t i = 0; i < n; ++i) hostDest[i] = hostBuf[i];
+    T* hostPtr = alpaka::getPtrNative(hostBuf);
+    for (int64_t i = 0; i < n; ++i) hostDest[i] = hostPtr[i];
 }
 
 // fill_buffer
@@ -88,7 +90,8 @@ void fill_buffer(DeviceBuffer<T>& buf, T value) {
         auto devHost = alpaka::getDevByIdx(alpaka::PlatformCpu{}, 0);
         AlpakaIdx extent = static_cast<AlpakaIdx>(buf.size());
         auto hostBuf = alpaka::allocBuf<T, AlpakaIdx>(devHost, extent);
-        for (int64_t i = 0; i < buf.size(); ++i) hostBuf[i] = value;
+        T* hostPtr = alpaka::getPtrNative(hostBuf);
+        for (int64_t i = 0; i < buf.size(); ++i) hostPtr[i] = value;
         alpaka::memcpy(queue, buf.buffer(), hostBuf, extent);
     }
     alpaka::wait(queue);
