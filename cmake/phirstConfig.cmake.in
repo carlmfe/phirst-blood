@@ -61,11 +61,12 @@ if(NOT TARGET "phirst::${_phirst_backend_lower}")
                 "-fsycl;-fsycl-targets=amdgcn-amd-amdhsa"
             )
         elseif(_phirst_sycl_backend STREQUAL "INTEL")
+            # JIT compilation: no -fsycl-targets, portable across all Intel GPUs.
             set_property(TARGET "phirst::${_phirst_backend_lower}" APPEND PROPERTY
-                INTERFACE_COMPILE_OPTIONS "-fsycl;-fsycl-targets=spir64_gen"
+                INTERFACE_COMPILE_OPTIONS "-fsycl"
             )
             set_property(TARGET "phirst::${_phirst_backend_lower}" APPEND PROPERTY
-                INTERFACE_LINK_OPTIONS "-fsycl;-fsycl-targets=spir64_gen"
+                INTERFACE_LINK_OPTIONS "-fsycl"
             )
         endif()
     endif()
