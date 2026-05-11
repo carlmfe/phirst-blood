@@ -1,7 +1,7 @@
 # Consolidated build-and-test workflow for all NVIDIA-runner backends.
 #
-# Sequential steps with continue-on-error allow all backends to be tested
-# even if one fails; per-step ✅/❌ in the GitHub UI provides full visibility.
+# Sequential steps are run with continue-on-error so all backends are attempted.
+# A final explicit gate in each job fails the job if any backend step failed.
 #
 # Two jobs:
 #   nvidia-builds — SERIAL, CUDA, Kokkos, Alpaka (sequential, continue-on-error)
@@ -29,6 +29,7 @@ jobs:
           submodules: recursive
 
       - name: Build & test — SERIAL
+        id: build_serial
         continue-on-error: true
         run: |
           cmake -S . -B build-serial \
@@ -40,6 +41,7 @@ jobs:
           rm -rf build-serial
 
       - name: Build & test — CUDA
+        id: build_cuda
         continue-on-error: true
         run: |
           module load cuda/13.0
@@ -53,6 +55,7 @@ jobs:
           rm -rf build-cuda
 
       - name: Build & test — Kokkos
+        id: build_kokkos
         continue-on-error: true
         # Note: kokkos/5.0.1 is built with CUDA; arch is baked into the module (sm_89)
         # Do not override CMAKE_CXX_STANDARD; the module sets the compiler correctly.
@@ -67,6 +70,7 @@ jobs:
           rm -rf build-kokkos
 
       - name: Build & test — Alpaka
+        id: build_alpaka
         continue-on-error: true
         run: |
           module load alpaka/2.0.0_cuda
@@ -78,6 +82,16 @@ jobs:
           cmake --build build-alpaka --parallel
           ctest --test-dir build-alpaka --output-on-failure
           rm -rf build-alpaka
+
+      - name: Fail job if any backend failed
+        if: always()
+        run: |
+          failed=0
+          [ "${{ steps.build_serial.outcome }}" = "failure" ] && echo "SERIAL failed" && failed=1
+          [ "${{ steps.build_cuda.outcome }}" = "failure" ] && echo "CUDA failed" && failed=1
+          [ "${{ steps.build_kokkos.outcome }}" = "failure" ] && echo "Kokkos failed" && failed=1
+          [ "${{ steps.build_alpaka.outcome }}" = "failure" ] && echo "Alpaka failed" && failed=1
+          exit "$failed"
 
   sycl-build:
     runs-on: [self-hosted, gpu]
@@ -91,6 +105,8 @@ jobs:
           submodules: recursive
 
       - name: Build & test — SYCL/CUDA
+        id: build_sycl_cuda
+        continue-on-error: true
         run: |
           module load sycl/cuda
           cmake -S . -B build-sycl \
@@ -103,3 +119,8 @@ jobs:
           cmake --build build-sycl --parallel
           ctest --test-dir build-sycl --output-on-failure
           rm -rf build-sycl
+
+      - name: Fail job if SYCL/CUDA failed
+        if: always()
+        run: |
+          [ "${{ steps.build_sycl_cuda.outcome }}" = "failure" ] && exit 1 || exit 0
