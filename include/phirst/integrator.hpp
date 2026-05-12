@@ -172,14 +172,15 @@ public:
      * @param mean Output: estimated mean of integrand * weight.
      * @param error Output: statistical error on the mean.
      * @param seed RNG seed for reproducibility.
+     * @param params VEGAS configuration (iterations, bins, adaptation, verbosity, …).
      */
     void runVegas(double cmEnergy, const double* masses,
                   double& mean, double& error,
-                  uint64_t seed = 5489ULL) {
+                  uint64_t seed = 5489ULL,
+                  VegasParams params = {}) {
 
         using Generator = PhaseSpaceGenerator<NumParticles, Algorithm>;
 
-        VegasParams params;
         params.nDim = Generator::nRandomNumbers;
 
         // Probe events per iteration: small enough to keep GPU atomic contention
@@ -230,8 +231,14 @@ public:
         // Remainder events that integer division would otherwise silently drop.
         const int64_t nRemainder = nEvents_ - nIntegratePerIter * static_cast<int64_t>(nIters);
 
-        IntegrationResult totalResult;
-        totalResult.nEvents = nEvents_;
+        // Inverse-variance combination accumulators (standard VAMP/CUBA convention):
+        //   I = Σ(w_k · I_k) / Σw_k,  σ = 1/√(Σw_k),  where w_k = 1/σ_k²
+        // Iterations with zero variance (e.g. constant integrand) go into a fallback
+        // accumulator; if ALL iterations have zero variance the unweighted mean is returned.
+        double totalWeight = 0.0;
+        double weightedSum = 0.0;
+        double fallbackSum = 0.0;
+        int    fallbackCount = 0;
 
         for (int iter = 0; iter < nIters; ++iter) {
             // Phase 1: probe (small, with atomics) to gather bin statistics
@@ -255,13 +262,73 @@ public:
             double iterSum2 = 0.0;
             grid_stride_reduce(eventsThisIter, intWork, iterSum, iterSum2);
 
-            totalResult.sum  += iterSum;
-            totalResult.sum2 += iterSum2;
+            // Per-iteration estimate and variance of the mean:
+            //   σ_k² = (E[f²] - E[f]²) / N_k
+            const auto iterN    = static_cast<double>(eventsThisIter);
+            const double iterMean = iterSum / iterN;
+            // Clamp to zero to guard against tiny negative results from floating-point rounding.
+            const double iterVar  = std::max(0.0, (iterSum2 / iterN - iterMean * iterMean) / iterN);
+
+            if (iterVar > 0.0) {
+                const double w = 1.0 / iterVar;
+                totalWeight += w;
+                weightedSum += iterMean * w;
+            } else {
+                // Zero variance: all events gave identical values (e.g. constant integrand).
+                // Store for the fallback path.
+                fallbackSum += iterMean;
+                ++fallbackCount;
+            }
+
+            // Verbose output: per-iteration result and running combined estimate.
+            if (params.verbose) {
+                double runMean = 0.0;
+                if (totalWeight > 0.0) {
+                    runMean = weightedSum / totalWeight;
+                } else if (fallbackCount > 0) {
+                    runMean = fallbackSum / fallbackCount;
+                }
+                const double runErr  = (totalWeight > 0.0) ? math::sqrt(1.0 / totalWeight) : 0.0;
+                std::cout << "VEGAS iter " << (iter + 1) << "/" << nIters
+                          << ":  I_k = " << iterMean;
+                if (iterVar > 0.0) {
+                    std::cout << " ± " << math::sqrt(iterVar * iterN);  // σ of distribution, not mean
+                }
+                std::cout << "   combined: " << runMean;
+                if (totalWeight > 0.0) { std::cout << " ± " << runErr; }
+                std::cout << '\n';
+            }
+
+            // Early stopping: once the minimum number of iterations is done,
+            // stop if the combined relative error is below the requested threshold.
+            if (iter >= params.minIterations - 1 && params.stopRelError > 0.0
+                    && totalWeight > 0.0) {
+                const double runMean = weightedSum / totalWeight;
+                const double runErr  = math::sqrt(1.0 / totalWeight);
+                if (math::fabs(runMean) > 0.0
+                        && runErr / math::fabs(runMean) <= params.stopRelError) {
+                    if (params.verbose) {
+                        std::cout << "VEGAS: early stop after iter " << (iter + 1)
+                                  << "  (rel. error = "
+                                  << runErr / math::fabs(runMean) << ")\n";
+                    }
+                    break;
+                }
+            }
         }
 
-        totalResult.computeStatistics();
-        mean  = totalResult.mean;
-        error = totalResult.error;
+        // Final combined estimate.
+        if (totalWeight > 0.0) {
+            mean  = weightedSum / totalWeight;
+            error = math::sqrt(1.0 / totalWeight);
+        } else if (fallbackCount > 0) {
+            // All iterations had zero variance: exact result.
+            mean  = fallbackSum / static_cast<double>(fallbackCount);
+            error = 0.0;
+        } else {
+            mean  = 0.0;
+            error = 0.0;
+        }
     }
 
 private:
