@@ -59,8 +59,13 @@ elseif(PHIRST_BACKEND STREQUAL "KOKKOS")
     target_link_libraries(test_phirst PRIVATE Kokkos::kokkos)
 elseif(PHIRST_BACKEND STREQUAL "SYCL")
     target_compile_definitions(test_phirst PRIVATE PHIRST_BACKEND_SYCL)
-    # SYCL_BACKEND, CUDA_GPU_ARCH, and PHIRST_SYCL_USE_ACPP are inherited from the parent scope
-    if(SYCL_BACKEND STREQUAL "CUDA")
+    # SYCL_BACKEND, CUDA_GPU_ARCH, PHIRST_SYCL_USE_ACPP and ACPP_EXTRA_COMPILE_OPTIONS
+    # are all set by the parent scope via the universal SYCL_DRIVER detection.
+    if(PHIRST_SYCL_USE_ACPP)
+        # AdaptiveCpp: add_sycl_to_target() redirects compile/link via acpp.
+        # ACPP_EXTRA_COMPILE_OPTIONS carries --acpp-targets=<backend>:<arch>.
+        add_sycl_to_target(TARGET test_phirst)
+    elseif(SYCL_BACKEND STREQUAL "CUDA")
         target_compile_options(test_phirst PRIVATE
             -fsycl
             -fsycl-targets=nvptx64-nvidia-cuda
@@ -71,11 +76,18 @@ elseif(PHIRST_BACKEND STREQUAL "SYCL")
             -fsycl
             -fsycl-targets=nvptx64-nvidia-cuda
         )
-    elseif(PHIRST_SYCL_USE_ACPP)
-        # AMD via AdaptiveCpp: RULE_LAUNCH_COMPILE/LINK redirect to acpp driver.
-        # ACPP_EXTRA_COMPILE_OPTIONS (set in parent) carries the --acpp-targets flag.
-        add_sycl_to_target(TARGET test_phirst)
-    else()
+    elseif(SYCL_BACKEND STREQUAL "AMD")
+        target_compile_options(test_phirst PRIVATE
+            -fsycl
+            -fsycl-targets=amdgcn-amd-amdhsa
+            -Xsycl-target-backend
+            --offload-arch=${PHIRST_AMD_GPU_ARCH}
+        )
+        target_link_options(test_phirst PRIVATE
+            -fsycl
+            -fsycl-targets=amdgcn-amd-amdhsa
+        )
+    else()  # INTEL or any DPC++ JIT target
         target_compile_options(test_phirst PRIVATE -fsycl)
         target_link_options(test_phirst PRIVATE -fsycl)
     endif()
