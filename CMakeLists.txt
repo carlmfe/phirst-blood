@@ -476,25 +476,30 @@ elseif(PHIRST_BACKEND STREQUAL "SYCL")
             -fsycl-targets=nvptx64-nvidia-cuda
         )
     elseif(SYCL_BACKEND STREQUAL "AMD")
-        set(PHIRST_AMD_GPU_ARCH "gfx1100" CACHE STRING "AMD GPU architecture for SYCL/AMD (e.g. gfx1100)")
-        if(PHIRST_GPU_ARCH)
+        # AMD SYCL via AdaptiveCpp (acpp).  find_package succeeds when rocm/<ver> module
+        # is loaded because the module adds the AdaptiveCpp prefix to CMAKE_PREFIX_PATH.
+        find_package(AdaptiveCpp REQUIRED)
+
+        # Architecture: prefer explicit PHIRST_AMD_GPU_ARCH / PHIRST_GPU_ARCH, then fall
+        # back to whatever ACPP_TARGETS the environment/module provides.
+        set(PHIRST_AMD_GPU_ARCH "" CACHE STRING "AMD GPU architecture for SYCL/AMD (e.g. gfx1100)")
+        if(PHIRST_GPU_ARCH AND NOT PHIRST_AMD_GPU_ARCH)
             set(PHIRST_AMD_GPU_ARCH "${PHIRST_GPU_ARCH}" CACHE STRING "AMD GPU architecture for SYCL/AMD" FORCE)
-            message(STATUS "SYCL AMD arch (from PHIRST_GPU_ARCH): ${PHIRST_AMD_GPU_ARCH}")
-        else()
-            message(STATUS "SYCL AMD arch: ${PHIRST_AMD_GPU_ARCH}")
         endif()
+        if(PHIRST_AMD_GPU_ARCH)
+            # Pass the target explicitly so it overrides the environment's ACPP_TARGETS.
+            set(ACPP_EXTRA_COMPILE_OPTIONS "--acpp-targets=hip:${PHIRST_AMD_GPU_ARCH}"
+                CACHE STRING "AdaptiveCpp extra compile options" FORCE)
+            message(STATUS "SYCL AMD arch: ${PHIRST_AMD_GPU_ARCH} (--acpp-targets=hip:${PHIRST_AMD_GPU_ARCH})")
+        else()
+            message(STATUS "SYCL AMD: using ACPP_TARGETS from environment: $ENV{ACPP_TARGETS}")
+        endif()
+
         set(PHIRST_SYCL_BACKEND "AMD")
         set(PHIRST_SYCL_AMD_ARCH "${PHIRST_AMD_GPU_ARCH}")
-        target_compile_options(phirst_sycl INTERFACE
-            -fsycl
-            -fsycl-targets=amdgcn-amd-amdhsa
-            -Xsycl-target-backend
-            --offload-arch=${PHIRST_AMD_GPU_ARCH}
-        )
-        target_link_options(phirst_sycl INTERFACE
-            -fsycl
-            -fsycl-targets=amdgcn-amd-amdhsa
-        )
+        # add_sycl_to_target() must be called on each consuming executable (not INTERFACE).
+        # The flag is set below in the examples/tests sections.
+        set(PHIRST_SYCL_USE_ACPP ON)
     elseif(SYCL_BACKEND STREQUAL "INTEL")
         set(PHIRST_SYCL_BACKEND "INTEL")
         # Use JIT compilation (portable): no -fsycl-targets specified.
@@ -512,9 +517,15 @@ elseif(PHIRST_BACKEND STREQUAL "SYCL")
     if(PHIRST_BUILD_EXAMPLES)
         add_executable(${EXENAME_DY} ${SOURCES_DY})
         target_link_libraries(${EXENAME_DY} PRIVATE phirst::sycl)
+        if(PHIRST_SYCL_USE_ACPP)
+            add_sycl_to_target(TARGET ${EXENAME_DY})
+        endif()
 
         add_executable(${EXENAME_EGG} ${SOURCES_EGG})
         target_link_libraries(${EXENAME_EGG} PRIVATE phirst::sycl)
+        if(PHIRST_SYCL_USE_ACPP)
+            add_sycl_to_target(TARGET ${EXENAME_EGG})
+        endif()
     endif()
 
     if(PHIRST_BUILD_TESTS)
@@ -601,6 +612,16 @@ install(DIRECTORY include/phirst
 install(DIRECTORY include/contrib
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
     FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp"
+)
+
+# Export the active backend INTERFACE target so downstream find_package() works
+install(TARGETS ${_PHIRST_EXPORT_TARGET}
+    EXPORT phirst-targets
+)
+install(EXPORT phirst-targets
+    FILE phirst-targets.cmake
+    NAMESPACE phirst::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/phirst
 )
 
 # Package config for find_package(phirst REQUIRED) support
