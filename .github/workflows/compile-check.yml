@@ -13,7 +13,7 @@
 #   hip-toolchains    — HIP (4 arches), Kokkos/HIP (gfx1100), Alpaka/HIP (gfx1100)
 #   sycl-cuda         — SYCL/CUDA (5 arches)
 #   sycl-intel        — SYCL/Intel JIT, Kokkos/SYCL; Alpaka/SYCL disabled (needs libigc1)
-#   sycl-amd          — DISABLED (sycl/amd module not yet built)
+#   sycl-amd          — SYCL/AMD (4 arches, AdaptiveCpp via rocm/6.3 module)
 #
 # sm_70 (Volta) is excluded from all NVIDIA jobs — CUDA 13.0 dropped sm_70 support.
 
@@ -396,14 +396,13 @@ jobs:
           exit "$failed"
 
   # ---------------------------------------------------------------------------
-  # Job 5: SYCL/AMD — DISABLED
-  # disabled: sycl/amd module not yet built (see .plan/ci_module_roadmap.md)
-  # When enabled: load sycl/amd and target gfx908, gfx90a, gfx942, gfx1100.
+  # Job 5: SYCL/AMD — AdaptiveCpp (acpp) via rocm/<ver> module
+  # AdaptiveCpp compiles SYCL for AMD GPUs using HIP as the device backend.
+  # Four AOT targets covering CDNA1–3 and RDNA3; rocm/6.3 module provides acpp.
   # ---------------------------------------------------------------------------
   sycl-amd:
-    name: "SYCL/AMD toolchains (disabled)"
+    name: "SYCL/AMD toolchains (AdaptiveCpp)"
     runs-on: [self-hosted, gpu]
-    if: false  # disabled: sycl/amd module not yet built (see .plan/ci_module_roadmap.md)
     defaults:
       run:
         shell: bash -l {0}
@@ -412,45 +411,59 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: "SYCL/AMD gfx908 (AMD MI100, CDNA1)"
+        id: sycl_amd_gfx908
+        continue-on-error: true
         run: |
-          module load sycl/amd
+          module load rocm/6.3
           cmake -S . -B build-sycl-amd-gfx908 \
             -DPHIRST_BACKEND=SYCL \
             -DSYCL_BACKEND=AMD \
             -DPHIRST_GPU_ARCH=gfx908 \
-            -DCMAKE_CXX_COMPILER=clang++ \
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-sycl-amd-gfx908 --parallel && rm -rf build-sycl-amd-gfx908
 
       - name: "SYCL/AMD gfx90a (AMD MI250/MI250X, CDNA2)"
+        id: sycl_amd_gfx90a
+        continue-on-error: true
         run: |
-          module load sycl/amd
+          module load rocm/6.3
           cmake -S . -B build-sycl-amd-gfx90a \
             -DPHIRST_BACKEND=SYCL \
             -DSYCL_BACKEND=AMD \
             -DPHIRST_GPU_ARCH=gfx90a \
-            -DCMAKE_CXX_COMPILER=clang++ \
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-sycl-amd-gfx90a --parallel && rm -rf build-sycl-amd-gfx90a
 
       - name: "SYCL/AMD gfx942 (AMD MI300X, CDNA3)"
+        id: sycl_amd_gfx942
+        continue-on-error: true
         run: |
-          module load sycl/amd
+          module load rocm/6.3
           cmake -S . -B build-sycl-amd-gfx942 \
             -DPHIRST_BACKEND=SYCL \
             -DSYCL_BACKEND=AMD \
             -DPHIRST_GPU_ARCH=gfx942 \
-            -DCMAKE_CXX_COMPILER=clang++ \
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-sycl-amd-gfx942 --parallel && rm -rf build-sycl-amd-gfx942
 
       - name: "SYCL/AMD gfx1100 (AMD RX 7900 XT, RDNA3)"
+        id: sycl_amd_gfx1100
+        continue-on-error: true
         run: |
-          module load sycl/amd
+          module load rocm/6.3
           cmake -S . -B build-sycl-amd-gfx1100 \
             -DPHIRST_BACKEND=SYCL \
             -DSYCL_BACKEND=AMD \
             -DPHIRST_GPU_ARCH=gfx1100 \
-            -DCMAKE_CXX_COMPILER=clang++ \
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-sycl-amd-gfx1100 --parallel && rm -rf build-sycl-amd-gfx1100
+
+      - name: Fail job if any SYCL/AMD step failed
+        if: always()
+        run: |
+          failed=0
+          [ "${{ steps.sycl_amd_gfx908.outcome }}"  = "failure" ] && echo "gfx908 failed"  && failed=1
+          [ "${{ steps.sycl_amd_gfx90a.outcome }}"  = "failure" ] && echo "gfx90a failed"  && failed=1
+          [ "${{ steps.sycl_amd_gfx942.outcome }}"  = "failure" ] && echo "gfx942 failed"  && failed=1
+          [ "${{ steps.sycl_amd_gfx1100.outcome }}" = "failure" ] && echo "gfx1100 failed" && failed=1
+          exit "$failed"
