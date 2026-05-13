@@ -226,10 +226,11 @@ public:
         using ProbeF = VegasWorkFunctor<Generator, Integrand, NumParticles, kMaxDim, true>;
         using IntF   = VegasWorkFunctor<Generator, Integrand, NumParticles, kMaxDim, false>;
 
-        const int nIters = std::max(1, params.nIterations);
-        const int64_t nIntegratePerIter = std::max(static_cast<int64_t>(1), nEvents_ / static_cast<int64_t>(nIters));
+        // Cap nIters to nEvents_ so nIntegratePerIter and nRemainder are always >= 0.
+        const int64_t nIters = std::max(int64_t{1}, std::min(static_cast<int64_t>(params.nIterations), nEvents_));
+        const int64_t nIntegratePerIter = nEvents_ / nIters;  // >= 1 because nIters <= nEvents_
         // Remainder events that integer division would otherwise silently drop.
-        const int64_t nRemainder = nEvents_ - nIntegratePerIter * static_cast<int64_t>(nIters);
+        const int64_t nRemainder = nEvents_ - nIntegratePerIter * nIters;  // in [0, nIters)
 
         // Inverse-variance combination accumulators (standard VAMP/CUBA convention):
         //   I = Σ(w_k · I_k) / Σw_k,  σ = 1/√(Σw_k),  where w_k = 1/σ_k²
@@ -240,7 +241,7 @@ public:
         double fallbackSum = 0.0;
         int    fallbackCount = 0;
 
-        for (int iter = 0; iter < nIters; ++iter) {
+        for (int64_t iter = 0; iter < nIters; ++iter) {
             // Phase 1: probe (small, with atomics) to gather bin statistics
             const uint64_t probeSeed = seed ^ (static_cast<uint64_t>(iter + 1) * 0xBF58476D1CE4E5B9ULL);
             ProbeF probeWork(generator, integrand_, cmEnergy, masses, probeSeed, grid);
