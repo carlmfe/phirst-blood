@@ -96,13 +96,17 @@ if(_alpaka_hw STREQUAL "CUDA")
 
 elseif(_alpaka_hw STREQUAL "HIP")
     # Resolve HIP architectures BEFORE enable_language so our value takes priority.
+    # Both CMAKE_HIP_ARCHITECTURES (CMake) and AMDGPU_TARGETS (ROCm) must be set:
+    # Alpaka internally calls find_package(hip), which reads AMDGPU_TARGETS.
     if(PHIRST_GPU_ARCH)
         set(CMAKE_HIP_ARCHITECTURES "${PHIRST_GPU_ARCH}" CACHE STRING "HIP architectures" FORCE)
+        set(AMDGPU_TARGETS "${PHIRST_GPU_ARCH}" CACHE STRING "AMD GPU targets for ROCm HIP" FORCE)
         message(STATUS "Alpaka HIP arch [user]: ${CMAKE_HIP_ARCHITECTURES}")
     else()
         detect_amd_architectures(_hip_arch)
         if(_hip_arch)
             set(CMAKE_HIP_ARCHITECTURES "${_hip_arch}" CACHE STRING "HIP architectures" FORCE)
+            set(AMDGPU_TARGETS "${_hip_arch}" CACHE STRING "AMD GPU targets for ROCm HIP" FORCE)
             message(STATUS "Alpaka HIP arch [auto]: ${CMAKE_HIP_ARCHITECTURES}")
         else()
             message(WARNING
@@ -123,6 +127,32 @@ elseif(_alpaka_hw STREQUAL "HIP")
 
 elseif(_alpaka_hw STREQUAL "SYCL")
     set(alpaka_ACC_SYCL_ENABLE ON)
+    # Alpaka SYCL targets Intel oneAPI hardware. At least one of
+    # alpaka_SYCL_ONEAPI_GPU/CPU/FPGA must be ON before find_package(alpaka).
+    # We default to Intel GPU (most common HPC use case).
+    # For CPU or FPGA targets, set alpaka_SYCL_ONEAPI_CPU/FPGA=ON directly on the command line.
+    # PHIRST_GPU_ARCH maps to an Intel GPU device string (e.g., intel_gpu_pvc, intel_gpu_acm_g12).
+    set(alpaka_SYCL_ONEAPI_GPU ON CACHE BOOL "Enable Intel GPU SYCL target in Alpaka" FORCE)
+    if(PHIRST_GPU_ARCH)
+        set(alpaka_SYCL_ONEAPI_GPU_DEVICES "${PHIRST_GPU_ARCH}"
+            CACHE STRING "Intel GPU device for Alpaka SYCL" FORCE)
+        set(PHIRST_ALPAKA_SYCL_DEVICE "${PHIRST_GPU_ARCH}")
+        message(STATUS "Alpaka SYCL Intel GPU device [user]: ${PHIRST_GPU_ARCH}")
+    else()
+        # Must pre-set alpaka_SYCL_ONEAPI_GPU_DEVICES before find_package(alpaka):
+        # Alpaka computes alpaka_SYCL_ONEAPI_GPU_TARGET from this variable before
+        # its own default-setting block runs, so leaving it unset yields an empty target list.
+        set(alpaka_SYCL_ONEAPI_GPU_DEVICES "intel_gpu_pvc"
+            CACHE STRING "Intel GPU device for Alpaka SYCL" FORCE)
+        set(PHIRST_ALPAKA_SYCL_DEVICE "intel_gpu_pvc (default)")
+        message(STATUS "Alpaka SYCL Intel GPU device [default]: intel_gpu_pvc")
+        message(WARNING
+            "No Intel GPU device specified for Alpaka SYCL backend. "
+            "Defaulting to 'intel_gpu_pvc' (Intel Data Center GPU Max / Ponte Vecchio).\n"
+            "Set -DPHIRST_GPU_ARCH=<device> to target a specific Intel GPU.\n"
+            "Valid values include: intel_gpu_pvc, intel_gpu_acm_g12, intel_gpu_tgllp, etc.\n"
+            "For CPU-only SYCL, pass -Dalpaka_SYCL_ONEAPI_CPU=ON -Dalpaka_SYCL_ONEAPI_GPU=OFF.")
+    endif()
     # Compiler flags are propagated by alpaka::alpaka; no extra language step needed.
 endif()
 unset(_alpaka_hw)
