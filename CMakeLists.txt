@@ -116,6 +116,52 @@ function(detect_intel_gpu_targets out_var)
     set(${out_var} "" PARENT_SCOPE)
 endfunction()
 
+# --- Arch normalization helpers ---
+# Accept "89" or "sm_89"; return numeric (e.g. "89") for CUDA/Alpaka/HIP
+function(normalize_nvidia_arch_numeric arch_in out_var)
+    string(REGEX REPLACE "^sm_" "" _n "${arch_in}")
+    set(${out_var} "${_n}" PARENT_SCOPE)
+endfunction()
+
+# Accept "89" or "sm_89"; return prefixed (e.g. "sm_89") for SYCL/DPC++
+function(normalize_nvidia_arch_sycl arch_in out_var)
+    string(REGEX REPLACE "^sm_" "" _n "${arch_in}")
+    set(${out_var} "sm_${_n}" PARENT_SCOPE)
+endfunction()
+
+# Unified hardware-detection entry point.
+# backend: CUDA, HIP, SYCL_CUDA, SYCL_AMD, SYCL_INTEL
+# out_arch: returned in native format for the backend
+function(phirst_detect_hardware backend out_arch)
+    if(backend STREQUAL "CUDA")
+        detect_nvidia_architectures(_a)
+        set(${out_arch} "${_a}" PARENT_SCOPE)
+    elseif(backend STREQUAL "HIP")
+        detect_amd_architectures(_a)
+        set(${out_arch} "${_a}" PARENT_SCOPE)
+    elseif(backend STREQUAL "SYCL_CUDA")
+        detect_nvidia_architectures(_a)
+        if(NOT _a STREQUAL "native")
+            set(_sycl_archs "")
+            foreach(_sm IN LISTS _a)
+                normalize_nvidia_arch_sycl("${_sm}" _sm_prefixed)
+                list(APPEND _sycl_archs "${_sm_prefixed}")
+            endforeach()
+            set(${out_arch} "${_sycl_archs}" PARENT_SCOPE)
+        else()
+            set(${out_arch} "" PARENT_SCOPE)
+        endif()
+    elseif(backend STREQUAL "SYCL_AMD")
+        detect_amd_architectures(_a)
+        set(${out_arch} "${_a}" PARENT_SCOPE)
+    elseif(backend STREQUAL "SYCL_INTEL")
+        detect_intel_gpu_targets(_a)
+        set(${out_arch} "${_a}" PARENT_SCOPE)
+    else()
+        set(${out_arch} "" PARENT_SCOPE)
+    endif()
+endfunction()
+
 # =============================================================================
 # Backend Selection
 # =============================================================================
@@ -264,7 +310,19 @@ elseif(PHIRST_BACKEND STREQUAL "CUDA")
     # ---------------------------
     set(CMAKE_CXX_STANDARD 20)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
-    
+
+    # Resolve CUDA architectures BEFORE enable_language(CUDA) so our value takes priority
+    # over CMake's toolkit default (enable_language sets CMAKE_CUDA_ARCHITECTURES otherwise).
+    if(PHIRST_GPU_ARCH)
+        normalize_nvidia_arch_numeric("${PHIRST_GPU_ARCH}" _cuda_arch)
+        set(CMAKE_CUDA_ARCHITECTURES "${_cuda_arch}" CACHE STRING "CUDA architectures" FORCE)
+        message(STATUS "CUDA arch [user]: ${CMAKE_CUDA_ARCHITECTURES}")
+    else()
+        detect_nvidia_architectures(_detected_cuda_archs)
+        set(CMAKE_CUDA_ARCHITECTURES "${_detected_cuda_archs}" CACHE STRING "CUDA architectures" FORCE)
+        message(STATUS "CUDA arch [auto]: ${CMAKE_CUDA_ARCHITECTURES}")
+    endif()
+
     include(CheckLanguage)
     check_language(CUDA)
     if(NOT CMAKE_CUDA_COMPILER)
@@ -274,18 +332,6 @@ elseif(PHIRST_BACKEND STREQUAL "CUDA")
 
     set(CMAKE_CUDA_STANDARD 20)
     set(CMAKE_CUDA_STANDARD_REQUIRED ON)
-
-    # Resolve CUDA architectures: PHIRST_GPU_ARCH > existing cache > auto-detect
-    if(PHIRST_GPU_ARCH)
-        set(CMAKE_CUDA_ARCHITECTURES "${PHIRST_GPU_ARCH}" CACHE STRING "CUDA architectures" FORCE)
-        message(STATUS "CUDA architectures (from PHIRST_GPU_ARCH): ${CMAKE_CUDA_ARCHITECTURES}")
-    elseif(NOT DEFINED CMAKE_CUDA_ARCHITECTURES OR CMAKE_CUDA_ARCHITECTURES STREQUAL "")
-        detect_nvidia_architectures(_detected_cuda_archs)
-        set(CMAKE_CUDA_ARCHITECTURES "${_detected_cuda_archs}" CACHE STRING "CUDA architectures" FORCE)
-        message(STATUS "CUDA architectures (auto-detected): ${CMAKE_CUDA_ARCHITECTURES}")
-    else()
-        message(STATUS "CUDA architectures (cached): ${CMAKE_CUDA_ARCHITECTURES}")
-    endif()
 
     add_library(phirst_cuda INTERFACE)
     add_library(phirst::cuda ALIAS phirst_cuda)
@@ -322,6 +368,13 @@ elseif(PHIRST_BACKEND STREQUAL "KOKKOS")
 
     find_package(Kokkos REQUIRED)
 
+    # Report what this Kokkos installation targets (arch is baked into the install)
+    message(STATUS "Kokkos version: ${Kokkos_VERSION}")
+    message(STATUS "Kokkos devices: ${Kokkos_DEVICES}")
+    if(Kokkos_ARCH)
+        message(STATUS "Kokkos arch targets: ${Kokkos_ARCH}")
+    endif()
+
     add_library(phirst_kokkos INTERFACE)
     add_library(phirst::kokkos ALIAS phirst_kokkos)
     target_include_directories(phirst_kokkos INTERFACE
@@ -348,65 +401,121 @@ elseif(PHIRST_BACKEND STREQUAL "ALPAKA")
     # ---------------------------
     # Alpaka Backend
     # ---------------------------
-    # The backend (CUDA / HIP / SYCL / CPU) is baked into the installed Alpaka
-    # library in alpakaTargets.cmake.  We probe that file before find_package()
-    # to set the right alpaka_ACC_*_ENABLE option and enable the appropriate
-    # CMake language.  No ALPAKA_BACKEND cache variable is needed; just point
-    # CMAKE_PREFIX_PATH or alpaka_ROOT at the desired Alpaka installation.
+    # Detect which hardware backend this Alpaka installation was built for by
+    # inspecting alpakaTargets.cmake — the CMake export artifact that records
+    # the compile-definition interface baked into the installed library.
+    # We search all standard CMake path sources so any discovery mechanism works
+    # (alpaka_ROOT env/cache, CMAKE_PREFIX_PATH, Alpaka_DIR, etc.).
 
-    # Locate alpakaTargets.cmake (alpaka_ROOT is set by module or -Dalpaka_ROOT=).
-    set(_alpaka_targets_file
-        "$ENV{alpaka_ROOT}/lib/cmake/alpaka/alpakaTargets.cmake")
-    if(NOT EXISTS "${_alpaka_targets_file}" AND DEFINED alpaka_ROOT)
-        set(_alpaka_targets_file
-            "${alpaka_ROOT}/lib/cmake/alpaka/alpakaTargets.cmake")
+    set(_alpaka_search_dirs "")
+    # Alpaka_DIR: set by our module directly to .../lib/cmake/alpaka
+    if(DEFINED ENV{Alpaka_DIR})
+        list(APPEND _alpaka_search_dirs "$ENV{Alpaka_DIR}")
+    endif()
+    if(DEFINED Alpaka_DIR)
+        list(APPEND _alpaka_search_dirs "${Alpaka_DIR}")
+    endif()
+    # alpaka_ROOT → lib/cmake/alpaka
+    foreach(_root "$ENV{alpaka_ROOT}" "${alpaka_ROOT}")
+        if(_root)
+            list(APPEND _alpaka_search_dirs "${_root}/lib/cmake/alpaka")
+        endif()
+    endforeach()
+    # CMAKE_PREFIX_PATH (CMake list variable and environment colon-list)
+    foreach(_prefix ${CMAKE_PREFIX_PATH})
+        list(APPEND _alpaka_search_dirs "${_prefix}/lib/cmake/alpaka")
+    endforeach()
+    if(DEFINED ENV{CMAKE_PREFIX_PATH})
+        string(REPLACE ":" ";" _env_cpp "$ENV{CMAKE_PREFIX_PATH}")
+        foreach(_prefix ${_env_cpp})
+            list(APPEND _alpaka_search_dirs "${_prefix}/lib/cmake/alpaka")
+        endforeach()
+        unset(_env_cpp)
     endif()
 
-    if(EXISTS "${_alpaka_targets_file}")
+    set(_alpaka_targets_file "")
+    foreach(_dir ${_alpaka_search_dirs})
+        if(EXISTS "${_dir}/alpakaTargets.cmake")
+            set(_alpaka_targets_file "${_dir}/alpakaTargets.cmake")
+            break()
+        endif()
+    endforeach()
+    unset(_alpaka_search_dirs)
+
+    set(_alpaka_hw "CPU")
+    if(_alpaka_targets_file)
         file(READ "${_alpaka_targets_file}" _alpaka_targets_content)
         if(_alpaka_targets_content MATCHES "ALPAKA_ACC_GPU_CUDA_ENABLED")
-            set(_alpaka_detected_backend "CUDA")
+            set(_alpaka_hw "CUDA")
         elseif(_alpaka_targets_content MATCHES "ALPAKA_ACC_GPU_HIP_ENABLED")
-            set(_alpaka_detected_backend "HIP")
+            set(_alpaka_hw "HIP")
         elseif(_alpaka_targets_content MATCHES "ALPAKA_ACC_SYCL_ENABLED")
-            set(_alpaka_detected_backend "SYCL")
-        else()
-            set(_alpaka_detected_backend "CPU")
+            set(_alpaka_hw "SYCL")
         endif()
         unset(_alpaka_targets_content)
     else()
-        message(WARNING "Could not locate alpakaTargets.cmake -- "
-                        "defaulting to CPU/Serial. "
-                        "Set alpaka_ROOT or CMAKE_PREFIX_PATH to the Alpaka install prefix.")
-        set(_alpaka_detected_backend "CPU")
+        message(WARNING
+            "Could not locate alpakaTargets.cmake — defaulting to CPU-only Alpaka. "
+            "Set alpaka_ROOT, Alpaka_DIR, or add the Alpaka prefix to CMAKE_PREFIX_PATH.")
     endif()
     unset(_alpaka_targets_file)
 
-    message(STATUS "Alpaka backend detected: ${_alpaka_detected_backend}")
+    message(STATUS "Alpaka hardware backend [detected]: ${_alpaka_hw}")
 
-    if(_alpaka_detected_backend STREQUAL "CUDA")
-        enable_language(CUDA)
+    if(_alpaka_hw STREQUAL "CUDA")
+        # Resolve CUDA architectures BEFORE enable_language so our value takes priority.
         if(PHIRST_GPU_ARCH)
-            set(CMAKE_CUDA_ARCHITECTURES "${PHIRST_GPU_ARCH}" CACHE STRING "CUDA architectures" FORCE)
-            message(STATUS "Alpaka CUDA architectures (from PHIRST_GPU_ARCH): ${CMAKE_CUDA_ARCHITECTURES}")
+            normalize_nvidia_arch_numeric("${PHIRST_GPU_ARCH}" _cuda_arch)
+            set(CMAKE_CUDA_ARCHITECTURES "${_cuda_arch}" CACHE STRING "CUDA architectures" FORCE)
+            message(STATUS "Alpaka CUDA arch [user]: ${CMAKE_CUDA_ARCHITECTURES}")
         else()
-            set(CMAKE_CUDA_ARCHITECTURES "native" CACHE STRING "CUDA architectures")
+            detect_nvidia_architectures(_cuda_arch)
+            set(CMAKE_CUDA_ARCHITECTURES "${_cuda_arch}" CACHE STRING "CUDA architectures" FORCE)
+            message(STATUS "Alpaka CUDA arch [auto]: ${CMAKE_CUDA_ARCHITECTURES}")
         endif()
+
+        include(CheckLanguage)
+        check_language(CUDA)
+        if(NOT CMAKE_CUDA_COMPILER)
+            message(FATAL_ERROR
+                "Alpaka installation has CUDA support but no CUDA compiler was found. "
+                "Load a CUDA module or ensure nvcc is on PATH.")
+        endif()
+        enable_language(CUDA)
         set(alpaka_ACC_GPU_CUDA_ENABLE ON)
-    elseif(_alpaka_detected_backend STREQUAL "HIP")
-        enable_language(HIP)
+
+    elseif(_alpaka_hw STREQUAL "HIP")
+        # Resolve HIP architectures BEFORE enable_language so our value takes priority.
         if(PHIRST_GPU_ARCH)
             set(CMAKE_HIP_ARCHITECTURES "${PHIRST_GPU_ARCH}" CACHE STRING "HIP architectures" FORCE)
-            message(STATUS "Alpaka HIP architectures (from PHIRST_GPU_ARCH): ${CMAKE_HIP_ARCHITECTURES}")
+            message(STATUS "Alpaka HIP arch [user]: ${CMAKE_HIP_ARCHITECTURES}")
+        else()
+            detect_amd_architectures(_hip_arch)
+            if(_hip_arch)
+                set(CMAKE_HIP_ARCHITECTURES "${_hip_arch}" CACHE STRING "HIP architectures" FORCE)
+                message(STATUS "Alpaka HIP arch [auto]: ${CMAKE_HIP_ARCHITECTURES}")
+            else()
+                message(WARNING
+                    "No AMD GPU detected and PHIRST_GPU_ARCH not set. "
+                    "Pass -DPHIRST_GPU_ARCH=gfx<target> to specify the target architecture.")
+            endif()
         endif()
+
+        include(CheckLanguage)
+        check_language(HIP)
+        if(NOT CMAKE_HIP_COMPILER)
+            message(FATAL_ERROR
+                "Alpaka installation has HIP support but no HIP compiler was found. "
+                "Load a ROCm module or ensure hipcc is on PATH.")
+        endif()
+        enable_language(HIP)
         set(alpaka_ACC_GPU_HIP_ENABLE ON)
-    elseif(_alpaka_detected_backend STREQUAL "SYCL")
+
+    elseif(_alpaka_hw STREQUAL "SYCL")
         set(alpaka_ACC_SYCL_ENABLE ON)
-        # SYCL target (CPU/GPU) must be set by the caller via -Dalpaka_SYCL_ONEAPI_GPU=ON
-        # (Intel GPU, requires libigc1 + intel-ocloc) or -Dalpaka_SYCL_ONEAPI_CPU=ON.
-        # SYCL compiler flags are propagated by alpaka::alpaka; no CMake language needed.
+        # Compiler flags are propagated by alpaka::alpaka; no extra language step needed.
     endif()
-    unset(_alpaka_detected_backend)
+    unset(_alpaka_hw)
 
     find_package(alpaka REQUIRED)
     add_library(phirst_alpaka INTERFACE)
@@ -416,7 +525,10 @@ elseif(PHIRST_BACKEND STREQUAL "ALPAKA")
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     )
     target_compile_definitions(phirst_alpaka INTERFACE PHIRST_BACKEND_ALPAKA)
-    target_link_libraries(phirst_alpaka INTERFACE alpaka::alpaka)
+    # Use BUILD_INTERFACE so alpaka::alpaka (non-IMPORTED alias) is not recorded in the
+    # install export — the installed phirstConfig.cmake.in re-creates the link via
+    # find_dependency(alpaka) + set_property.
+    target_link_libraries(phirst_alpaka INTERFACE $<BUILD_INTERFACE:alpaka::alpaka>)
     set(_PHIRST_EXPORT_TARGET phirst_alpaka)
 
     if(PHIRST_BUILD_EXAMPLES)
@@ -450,8 +562,9 @@ elseif(PHIRST_BACKEND STREQUAL "SYCL")
     #
     # SYCL_DRIVER auto-detection order (when SYCL_DRIVER=AUTO):
     #   1. If CMAKE_CXX_COMPILER basename is "acpp" or "syclcc" → ACPP (required)
-    #   2. Else if find_package(AdaptiveCpp) succeeds          → ACPP
-    #   3. Otherwise                                            → DPC++
+    #   2. Else if SYCL_BACKEND=AMD and find_package(AdaptiveCpp) succeeds → ACPP
+    #      (ACPP is the natural AMD driver; for CUDA/INTEL default to DPC++)
+    #   3. Otherwise → DPC++
 
     set(CMAKE_CXX_STANDARD 20)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -474,7 +587,8 @@ elseif(PHIRST_BACKEND STREQUAL "SYCL")
         if(_cxx_name MATCHES "^(acpp|syclcc)$")
             find_package(AdaptiveCpp REQUIRED)
             set(_sycl_use_acpp ON)
-        else()
+        elseif(SYCL_BACKEND STREQUAL "AMD")
+            # Only probe for ACPP on AMD; for CUDA/INTEL DPC++ is the natural choice.
             find_package(AdaptiveCpp QUIET)
             if(AdaptiveCpp_FOUND)
                 set(_sycl_use_acpp ON)
@@ -502,11 +616,25 @@ elseif(PHIRST_BACKEND STREQUAL "SYCL")
 
     # ---- Hardware target: resolve arch and apply flags ----
     if(SYCL_BACKEND STREQUAL "CUDA")
-        set(CUDA_GPU_ARCH "sm_70" CACHE STRING "CUDA GPU architecture for SYCL (e.g. sm_89)")
+        # Resolve SYCL/CUDA arch: PHIRST_GPU_ARCH (any format) > cached CUDA_GPU_ARCH > auto-detect.
+        # SYCL requires "sm_XX" prefix form; "native" keyword is not supported.
         if(PHIRST_GPU_ARCH)
-            set(CUDA_GPU_ARCH "${PHIRST_GPU_ARCH}" CACHE STRING "CUDA GPU architecture for SYCL" FORCE)
+            normalize_nvidia_arch_sycl("${PHIRST_GPU_ARCH}" _sycl_cuda_arch)
+            message(STATUS "SYCL CUDA arch [user]: ${_sycl_cuda_arch}")
+        elseif(DEFINED CACHE{CUDA_GPU_ARCH} AND NOT "$CACHE{CUDA_GPU_ARCH}" STREQUAL "")
+            set(_sycl_cuda_arch "$CACHE{CUDA_GPU_ARCH}")
+            message(STATUS "SYCL CUDA arch [cached]: ${_sycl_cuda_arch}")
+        else()
+            phirst_detect_hardware("SYCL_CUDA" _sycl_cuda_arch)
+            if(NOT _sycl_cuda_arch)
+                message(FATAL_ERROR
+                    "SYCL/CUDA backend: no NVIDIA GPU detected and PHIRST_GPU_ARCH not set. "
+                    "Specify the target architecture: -DPHIRST_GPU_ARCH=sm_89")
+            endif()
+            list(GET _sycl_cuda_arch 0 _sycl_cuda_arch)  # SYCL targets a single arch
+            message(STATUS "SYCL CUDA arch [auto]: ${_sycl_cuda_arch}")
         endif()
-        message(STATUS "SYCL CUDA arch: ${CUDA_GPU_ARCH}")
+        set(CUDA_GPU_ARCH "${_sycl_cuda_arch}" CACHE STRING "CUDA GPU architecture for SYCL (e.g. sm_89)" FORCE)
         set(PHIRST_SYCL_BACKEND "CUDA")
         set(PHIRST_SYCL_CUDA_ARCH "${CUDA_GPU_ARCH}")
 
@@ -528,10 +656,15 @@ elseif(PHIRST_BACKEND STREQUAL "SYCL")
         endif()
 
     elseif(SYCL_BACKEND STREQUAL "AMD")
-        set(PHIRST_AMD_GPU_ARCH "" CACHE STRING "AMD GPU architecture for SYCL/AMD (e.g. gfx1100)")
-        if(PHIRST_GPU_ARCH AND NOT PHIRST_AMD_GPU_ARCH)
-            set(PHIRST_AMD_GPU_ARCH "${PHIRST_GPU_ARCH}" CACHE STRING "AMD GPU architecture for SYCL/AMD" FORCE)
+        # Resolve AMD arch: PHIRST_GPU_ARCH > PHIRST_AMD_GPU_ARCH cache > auto-detect
+        if(PHIRST_GPU_ARCH)
+            set(_sycl_amd_arch "${PHIRST_GPU_ARCH}")
+        elseif(DEFINED CACHE{PHIRST_AMD_GPU_ARCH} AND NOT "$CACHE{PHIRST_AMD_GPU_ARCH}" STREQUAL "")
+            set(_sycl_amd_arch "$CACHE{PHIRST_AMD_GPU_ARCH}")
+        else()
+            phirst_detect_hardware("SYCL_AMD" _sycl_amd_arch)
         endif()
+        set(PHIRST_AMD_GPU_ARCH "${_sycl_amd_arch}" CACHE STRING "AMD GPU architecture for SYCL/AMD (e.g. gfx1100)" FORCE)
         set(PHIRST_SYCL_BACKEND "AMD")
         set(PHIRST_SYCL_AMD_ARCH "${PHIRST_AMD_GPU_ARCH}")
 
@@ -614,6 +747,23 @@ elseif(PHIRST_BACKEND STREQUAL "HIP")
     set(CMAKE_CXX_STANDARD 20)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+    # Resolve HIP architectures BEFORE enable_language(HIP) so our value takes priority.
+    # Format: gfx* strings, e.g. "gfx1100" or "gfx908;gfx90a"
+    if(PHIRST_GPU_ARCH)
+        set(CMAKE_HIP_ARCHITECTURES "${PHIRST_GPU_ARCH}" CACHE STRING "HIP architectures" FORCE)
+        message(STATUS "HIP arch [user]: ${CMAKE_HIP_ARCHITECTURES}")
+    else()
+        detect_amd_architectures(_detected_hip_archs)
+        if(_detected_hip_archs)
+            set(CMAKE_HIP_ARCHITECTURES "${_detected_hip_archs}" CACHE STRING "HIP architectures" FORCE)
+            message(STATUS "HIP arch [auto]: ${CMAKE_HIP_ARCHITECTURES}")
+        else()
+            message(FATAL_ERROR
+                "No AMD GPU detected and PHIRST_GPU_ARCH not set. "
+                "Specify the target architecture: -DPHIRST_GPU_ARCH=gfx1100")
+        endif()
+    endif()
+
     include(CheckLanguage)
     check_language(HIP)
     if(NOT CMAKE_HIP_COMPILER)
@@ -623,25 +773,6 @@ elseif(PHIRST_BACKEND STREQUAL "HIP")
 
     set(CMAKE_HIP_STANDARD 20)
     set(CMAKE_HIP_STANDARD_REQUIRED ON)
-
-    # Resolve HIP architectures: PHIRST_GPU_ARCH > existing cache > auto-detect
-    # Format: gfx* strings, e.g. "gfx1100" or "gfx908;gfx90a"
-    if(PHIRST_GPU_ARCH)
-        set(CMAKE_HIP_ARCHITECTURES "${PHIRST_GPU_ARCH}" CACHE STRING "HIP architectures" FORCE)
-        message(STATUS "HIP architectures (from PHIRST_GPU_ARCH): ${CMAKE_HIP_ARCHITECTURES}")
-    elseif(NOT DEFINED CMAKE_HIP_ARCHITECTURES OR CMAKE_HIP_ARCHITECTURES STREQUAL "")
-        detect_amd_architectures(_detected_hip_archs)
-        if(_detected_hip_archs)
-            set(CMAKE_HIP_ARCHITECTURES "${_detected_hip_archs}" CACHE STRING "HIP architectures" FORCE)
-            message(STATUS "HIP architectures (auto-detected): ${CMAKE_HIP_ARCHITECTURES}")
-        else()
-            message(FATAL_ERROR
-                "No AMD GPU detected and PHIRST_GPU_ARCH not set. "
-                "Specify the target architecture: -DPHIRST_GPU_ARCH=gfx1100")
-        endif()
-    else()
-        message(STATUS "HIP architectures (cached): ${CMAKE_HIP_ARCHITECTURES}")
-    endif()
 
     add_library(phirst_hip INTERFACE)
     add_library(phirst::hip ALIAS phirst_hip)
@@ -699,6 +830,32 @@ install(EXPORT phirst-targets
 
 # Package config for find_package(phirst REQUIRED) support
 string(TOLOWER "${PHIRST_BACKEND}" _phirst_backend_lower)
+
+# Record the resolved GPU arch for the installed config
+if(PHIRST_BACKEND STREQUAL "CUDA")
+    set(PHIRST_RESOLVED_GPU_ARCH "${CMAKE_CUDA_ARCHITECTURES}")
+elseif(PHIRST_BACKEND STREQUAL "HIP")
+    set(PHIRST_RESOLVED_GPU_ARCH "${CMAKE_HIP_ARCHITECTURES}")
+elseif(PHIRST_BACKEND STREQUAL "SYCL")
+    if(PHIRST_SYCL_BACKEND STREQUAL "CUDA")
+        set(PHIRST_RESOLVED_GPU_ARCH "${CUDA_GPU_ARCH}")
+    elseif(PHIRST_SYCL_BACKEND STREQUAL "AMD")
+        set(PHIRST_RESOLVED_GPU_ARCH "${PHIRST_AMD_GPU_ARCH}")
+    else()
+        set(PHIRST_RESOLVED_GPU_ARCH "")  # JIT, no specific arch
+    endif()
+elseif(PHIRST_BACKEND STREQUAL "ALPAKA")
+    if(CMAKE_CUDA_ARCHITECTURES)
+        set(PHIRST_RESOLVED_GPU_ARCH "${CMAKE_CUDA_ARCHITECTURES}")
+    elseif(CMAKE_HIP_ARCHITECTURES)
+        set(PHIRST_RESOLVED_GPU_ARCH "${CMAKE_HIP_ARCHITECTURES}")
+    else()
+        set(PHIRST_RESOLVED_GPU_ARCH "")
+    endif()
+else()
+    set(PHIRST_RESOLVED_GPU_ARCH "")
+endif()
+
 configure_package_config_file(
     cmake/phirstConfig.cmake.in
     ${CMAKE_CURRENT_BINARY_DIR}/phirstConfig.cmake
@@ -718,5 +875,60 @@ install(FILES
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/phirst
 )
 
-message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
-message(STATUS "Compiler: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
+# =============================================================================
+# Configuration Summary
+# =============================================================================
+
+# Resolve human-readable arch string for the summary
+set(_phirst_arch_summary "")
+if(PHIRST_BACKEND STREQUAL "CUDA")
+    set(_phirst_arch_summary "${CMAKE_CUDA_ARCHITECTURES}")
+elseif(PHIRST_BACKEND STREQUAL "KOKKOS")
+    if(Kokkos_ARCH)
+        set(_phirst_arch_summary "${Kokkos_ARCH} (Kokkos-managed)")
+    else()
+        set(_phirst_arch_summary "${Kokkos_DEVICES} (Kokkos-managed)")
+    endif()
+elseif(PHIRST_BACKEND STREQUAL "ALPAKA")
+    if(CMAKE_CUDA_ARCHITECTURES)
+        set(_phirst_arch_summary "${CMAKE_CUDA_ARCHITECTURES} (CUDA)")
+    elseif(CMAKE_HIP_ARCHITECTURES)
+        set(_phirst_arch_summary "${CMAKE_HIP_ARCHITECTURES} (HIP)")
+    else()
+        set(_phirst_arch_summary "CPU")
+    endif()
+elseif(PHIRST_BACKEND STREQUAL "SYCL")
+    if(PHIRST_SYCL_BACKEND STREQUAL "CUDA")
+        set(_phirst_arch_summary "${CUDA_GPU_ARCH}")
+    elseif(PHIRST_SYCL_BACKEND STREQUAL "AMD")
+        set(_phirst_arch_summary "${PHIRST_AMD_GPU_ARCH}")
+    else()
+        set(_phirst_arch_summary "JIT (INTEL)")
+    endif()
+elseif(PHIRST_BACKEND STREQUAL "HIP")
+    set(_phirst_arch_summary "${CMAKE_HIP_ARCHITECTURES}")
+else()
+    set(_phirst_arch_summary "N/A (CPU serial)")
+endif()
+
+message(STATUS "")
+message(STATUS "===========================================")
+message(STATUS " Phirst Blood configuration summary")
+message(STATUS "-------------------------------------------")
+message(STATUS " Backend:     ${PHIRST_BACKEND}")
+if(PHIRST_BACKEND STREQUAL "SYCL")
+    message(STATUS " SYCL hw:     ${SYCL_BACKEND}")
+    if(_sycl_use_acpp)
+        message(STATUS " SYCL driver: AdaptiveCpp ${AdaptiveCpp_VERSION}")
+    else()
+        message(STATUS " SYCL driver: DPC++ / clang -fsycl")
+    endif()
+endif()
+message(STATUS " GPU arch:    ${_phirst_arch_summary}")
+message(STATUS " Build type:  ${CMAKE_BUILD_TYPE}")
+message(STATUS " Compiler:    ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
+message(STATUS " Tests:       ${PHIRST_BUILD_TESTS}")
+message(STATUS " Examples:    ${PHIRST_BUILD_EXAMPLES}")
+message(STATUS " Install:     ${CMAKE_INSTALL_PREFIX}")
+message(STATUS "===========================================")
+message(STATUS "")
