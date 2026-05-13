@@ -59,19 +59,42 @@ elseif(PHIRST_BACKEND STREQUAL "KOKKOS")
     target_link_libraries(test_phirst PRIVATE Kokkos::kokkos)
 elseif(PHIRST_BACKEND STREQUAL "SYCL")
     target_compile_definitions(test_phirst PRIVATE PHIRST_BACKEND_SYCL)
-    # SYCL_BACKEND and CUDA_GPU_ARCH are inherited from the parent scope
-    if(SYCL_BACKEND STREQUAL "CUDA")
-        target_compile_options(test_phirst PRIVATE
-            -fsycl
-            -fsycl-targets=nvptx64-nvidia-cuda
-            -Xsycl-target-backend
-            --cuda-gpu-arch=${CUDA_GPU_ARCH}
-        )
+    # SYCL_BACKEND, PHIRST_SYCL_CUDA_ARCH, PHIRST_SYCL_USE_ACPP and ACPP_EXTRA_COMPILE_OPTIONS
+    # are all set by the parent scope via the universal SYCL_DRIVER detection.
+    if(PHIRST_SYCL_USE_ACPP)
+        # AdaptiveCpp: add_sycl_to_target() redirects compile/link via acpp.
+        # ACPP_EXTRA_COMPILE_OPTIONS carries --acpp-targets=<backend>:<arch>.
+        add_sycl_to_target(TARGET test_phirst)
+    elseif(SYCL_BACKEND STREQUAL "CUDA")
+        if(PHIRST_SYCL_CUDA_ARCH)
+            target_compile_options(test_phirst PRIVATE
+                -fsycl
+                -fsycl-targets=nvptx64-nvidia-cuda
+                -Xsycl-target-backend
+                --cuda-gpu-arch=${PHIRST_SYCL_CUDA_ARCH}
+            )
+        else()
+            target_compile_options(test_phirst PRIVATE
+                -fsycl
+                -fsycl-targets=nvptx64-nvidia-cuda
+            )
+        endif()
         target_link_options(test_phirst PRIVATE
             -fsycl
             -fsycl-targets=nvptx64-nvidia-cuda
         )
-    else()
+    elseif(SYCL_BACKEND STREQUAL "AMD")
+        target_compile_options(test_phirst PRIVATE
+            -fsycl
+            -fsycl-targets=amdgcn-amd-amdhsa
+            -Xsycl-target-backend
+            --offload-arch=${PHIRST_SYCL_AMD_ARCH}
+        )
+        target_link_options(test_phirst PRIVATE
+            -fsycl
+            -fsycl-targets=amdgcn-amd-amdhsa
+        )
+    else()  # INTEL or any DPC++ JIT target
         target_compile_options(test_phirst PRIVATE -fsycl)
         target_link_options(test_phirst PRIVATE -fsycl)
     endif()

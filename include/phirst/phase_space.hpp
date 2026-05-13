@@ -192,6 +192,7 @@ public:
         double virtMom[nParticles];
 
         double cmEnergySq = cmEnergy * cmEnergy;
+        if (totalMassSq > cmEnergySq) { return -std::numeric_limits<double>::infinity(); }
         double xMax = math::sqrt(1.0 - totalMassSq / cmEnergySq);
         for (int i = 0; i < nParticles; ++i) {
             momSq[i] = p[i][0] * p[i][0];

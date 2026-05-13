@@ -9,13 +9,32 @@ set_and_check(PHIRST_INCLUDE_DIR "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@")
 set(_phirst_backend "@PHIRST_BACKEND@")
 set(_phirst_sycl_backend "@PHIRST_SYCL_BACKEND@")
 set(_phirst_sycl_cuda_arch "@PHIRST_SYCL_CUDA_ARCH@")
+set(_phirst_sycl_amd_arch "@PHIRST_SYCL_AMD_ARCH@")
+set(_phirst_sycl_use_acpp "@PHIRST_SYCL_USE_ACPP@")
+set(phirst_GPU_ARCH "@PHIRST_RESOLVED_GPU_ARCH@")  # resolved arch for downstream inspection
 string(TOLOWER "${_phirst_backend}" _phirst_backend_lower)
+
+# ACPP-installed SYCL cannot be consumed via find_package: add_sycl_to_target()
+# must be called per concrete target and cannot be propagated via INTERFACE imports.
+if(_phirst_backend STREQUAL "SYCL" AND _phirst_sycl_use_acpp)
+    message(FATAL_ERROR
+        "This phirst installation was built with AdaptiveCpp (ACPP) as the SYCL driver.\n"
+        "ACPP installs cannot be consumed via find_package(phirst) because\n"
+        "add_sycl_to_target() must be called on each concrete target.\n\n"
+        "Alternatives:\n"
+        "  1. Use FetchContent to build phirst from source with the same ACPP installation.\n"
+        "  2. Rebuild with -DSYCL_DRIVER=DPC++ to produce a find_package-compatible install.\n")
+endif()
 
 # Re-find framework dependencies so transitively linked targets are valid
 if(_phirst_backend STREQUAL "KOKKOS")
     find_dependency(Kokkos REQUIRED)
 elseif(_phirst_backend STREQUAL "ALPAKA")
     find_dependency(alpaka REQUIRED)
+elseif(_phirst_backend STREQUAL "HIP")
+    # HIP does not provide a CMake find module that we can re-invoke here.
+    # Downstream users must enable_language(HIP) before find_package(phirst)
+    # and set_source_files_properties(<sources> PROPERTIES LANGUAGE HIP).
 endif()
 
 # Create phirst::<backend> as an INTERFACE IMPORTED target
@@ -40,17 +59,39 @@ if(NOT TARGET "phirst::${_phirst_backend_lower}")
             INTERFACE_COMPILE_OPTIONS
             "$<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>"
         )
+    elseif(_phirst_backend STREQUAL "HIP")
+        # No extra link libraries needed; HIP runtime is linked by enable_language(HIP).
+        # Downstream: set_source_files_properties(<sources> PROPERTIES LANGUAGE HIP)
     elseif(_phirst_backend STREQUAL "SYCL")
         if(_phirst_sycl_backend STREQUAL "CUDA")
-            set_property(TARGET "phirst::${_phirst_backend_lower}" APPEND PROPERTY
-                INTERFACE_COMPILE_OPTIONS
-                "-fsycl;-fsycl-targets=nvptx64-nvidia-cuda;-Xsycl-target-backend;--cuda-gpu-arch=${_phirst_sycl_cuda_arch}"
-            )
+            if(_phirst_sycl_cuda_arch)
+                # AOT: PTX compiled for a specific SM
+                set_property(TARGET "phirst::${_phirst_backend_lower}" APPEND PROPERTY
+                    INTERFACE_COMPILE_OPTIONS
+                    "-fsycl;-fsycl-targets=nvptx64-nvidia-cuda;-Xsycl-target-backend;--cuda-gpu-arch=${_phirst_sycl_cuda_arch}"
+                )
+            else()
+                # JIT: PTX compiled for any GPU at runtime
+                set_property(TARGET "phirst::${_phirst_backend_lower}" APPEND PROPERTY
+                    INTERFACE_COMPILE_OPTIONS
+                    "-fsycl;-fsycl-targets=nvptx64-nvidia-cuda"
+                )
+            endif()
             set_property(TARGET "phirst::${_phirst_backend_lower}" APPEND PROPERTY
                 INTERFACE_LINK_OPTIONS
                 "-fsycl;-fsycl-targets=nvptx64-nvidia-cuda"
             )
-        else()
+        elseif(_phirst_sycl_backend STREQUAL "AMD")
+            set_property(TARGET "phirst::${_phirst_backend_lower}" APPEND PROPERTY
+                INTERFACE_COMPILE_OPTIONS
+                "-fsycl;-fsycl-targets=amdgcn-amd-amdhsa;-Xsycl-target-backend;--offload-arch=${_phirst_sycl_amd_arch}"
+            )
+            set_property(TARGET "phirst::${_phirst_backend_lower}" APPEND PROPERTY
+                INTERFACE_LINK_OPTIONS
+                "-fsycl;-fsycl-targets=amdgcn-amd-amdhsa"
+            )
+        elseif(_phirst_sycl_backend STREQUAL "INTEL")
+            # JIT compilation: no -fsycl-targets, portable across all Intel GPUs.
             set_property(TARGET "phirst::${_phirst_backend_lower}" APPEND PROPERTY
                 INTERFACE_COMPILE_OPTIONS "-fsycl"
             )

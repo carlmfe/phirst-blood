@@ -57,8 +57,11 @@ include/phirst/         # All library headers (header-only)
 examples/               # drell_yan.cpp, eggholder.cpp
 tests/                  # GoogleTest suite
 bench/benchmark.sh      # Multi-backend benchmark script
-deploy/architectures.yml # Source of truth for CI architecture matrix
-CMakeLists.txt          # Single unified build file
+cmake/                  # CMake modules (PhirstDetect, PhirstInstall, backend/*.cmake)
+deploy/                 # Architecture matrix + deployment docs (keep in sync with CI!)
+  architectures.yml     #   Source of truth for CI architecture matrix
+  README.md             #   CI workflow/runner documentation
+CMakeLists.txt          # Slim dispatcher (~137 lines); delegates to cmake/ modules
 .github/workflows/      # GitHub Actions CI
 ```
 
@@ -73,10 +76,13 @@ CMakeLists.txt          # Single unified build file
 - **Self-hosted Actions runner**: registered as `kontor`, label `[self-hosted, gpu]`; runner files in `actions-runner/`
 - **Module names** (exact, on this machine):
   - `module load kokkos/5.0.1` — Kokkos CUDA build (auto-loads `cuda/13.0` internally)
+  - `module load kokkos/5.1.0-hip6.3` — Kokkos HIP build (for AMD compile-checks)
+  - `module load kokkos/5.1.0-sycl` — Kokkos SYCL build (for Intel SYCL compile-checks; use with `icpx`)
   - `module load alpaka/2.0.0_cuda` — Alpaka 2.0.0 with CUDA backend
+  - `module load alpaka/2.0.0_hip6.3` — Alpaka 2.0.0 with HIP/ROCm 6.3 backend
   - `module load sycl/cuda` — Intel LLVM DPC++ with CUDA backend (at `~/phd/packages/sycl/intel-llvm/build`)
   - `module load oneapi/2026.0` — Intel icpx (at `/opt/intel/oneapi/compiler/2026.0`); use **2026.0** not 2025.3
-  - `module load rocm/6.3` — AMD ROCm 6.3 / HIP (at `/opt/rocm-6.3.0`)
+  - `module load rocm/6.3` — AMD ROCm 6.3 / HIP + AdaptiveCpp (acpp) for SYCL/AMD (at `/opt/rocm-6.3.0`)
 
 ### Remote HPC
 - **GPU**: NVIDIA `sm_90` (e.g., H100 or GH200)
@@ -144,27 +150,28 @@ jobs:
 
 **Important**: always use `shell: bash -l {0}` (login shell) in steps that need `module load`.
 
-### One Workflow Per Backend
+### Workflow Files
 
-Two categories of workflow exist:
+Two categories of workflow exist in `.github/workflows/`:
 
-**Build + test workflows** (run full suite on GPU hardware):
-- `.github/workflows/build-serial.yml`
-- `.github/workflows/build-cuda.yml`
-- `.github/workflows/build-kokkos.yml`
-- `.github/workflows/build-alpaka.yml`
-- `.github/workflows/build-sycl.yml`
-- `.github/workflows/build-hip.yml` *(compile-check only — no AMD runner yet)*
+**Build + test** (run full test suite on GPU hardware):
+- `build.yml` — consolidated: SERIAL, CUDA, Kokkos/CUDA, Alpaka/CUDA, SYCL/CUDA
+- `build-hip.yml` — HIP compile + install test (no AMD runner for execution tests yet)
 
-**Compile-check workflows** (cross-compile for all target architectures, no execution):
-- `.github/workflows/compile-check-cuda.yml`
-- `.github/workflows/compile-check-kokkos.yml`
-- `.github/workflows/compile-check-alpaka.yml`
-- `.github/workflows/compile-check-sycl.yml`
-- `.github/workflows/compile-check-hip.yml`
+**Compile-check** (cross-compile for all target architectures, no execution):
+- `compile-check.yml` — consolidated into 5 jobs:
+  - `nvidia-toolchains` — CUDA sm_75/80/86/89/90, Alpaka/CUDA sm_89, Kokkos/CUDA sm_89
+  - `hip-toolchains` — HIP gfx908/90a/942/1100, Kokkos/HIP gfx1100, Alpaka/HIP gfx1100
+  - `sycl-cuda` — SYCL/CUDA sm_75/80/86/89/90
+  - `sycl-intel` — SYCL/Intel JIT, Kokkos/SYCL (both via icpx)
+  - `sycl-amd` — SYCL/AMD gfx908/90a/942/1100 via AdaptiveCpp
 
-Architecture targets for compile checks are defined in `deploy/architectures.yml` — that file
-is the single source of truth for the CI matrix. Update it there, not in individual workflow files.
+Architecture targets are defined in `deploy/architectures.yml` — that file is the single
+source of truth. Sync `deploy/README.md` and `deploy/architectures.yml` whenever:
+- A new backend or sub-backend is added or changed in CI
+- A new architecture is added to the compile-check matrix
+- A runner becomes available or is decommissioned
+- CI jobs are restructured or renamed
 
 ---
 
@@ -175,8 +182,9 @@ is the single source of truth for the CI matrix. Update it there, not in individ
 | Arch | Hardware | Backend(s) | Status |
 |------|----------|-----------|--------|
 | `sm_89` | RTX 2000 Ada (local) | CUDA, Kokkos/CUDA, Alpaka/CUDA, SYCL/CUDA | ✅ builds + runs |
-| `sm_90` | H100/GH200 (HPC) | CUDA, Kokkos/CUDA, Alpaka/CUDA, SYCL/CUDA | compile-check only |
-| `gfx1100` | RX 7900 / RDNA3 | HIP | compile-check only (no AMD runner) |
+| `sm_75–sm_90` | Various NVIDIA | CUDA, Alpaka/CUDA, SYCL/CUDA | ✅ compile-check (cross) |
+| `gfx908/90a/942/1100` | AMD CDNA1–3, RDNA3 | HIP, Kokkos/HIP, Alpaka/HIP, SYCL/AMD | ✅ compile-check (cross) |
+| Intel GPUs | PVC, Arc | SYCL/Intel JIT, Kokkos/SYCL | ✅ compile-check (JIT) |
 
 ### Architecture CMake Flags
 
@@ -288,13 +296,13 @@ bash bench/benchmark.sh 2>&1 | tee benchmark.out
 ## Checklist: Adding a New Backend or Architecture
 
 - [ ] Verify the module name on the target system
-- [ ] Add a new `build-<backend>.yml` workflow in `.github/workflows/`
-- [ ] Add a `compile-check-<backend>.yml` workflow referencing `deploy/architectures.yml`
+- [ ] Add steps to `build.yml` or `build-hip.yml` for the new backend/arch
+- [ ] Add steps to the relevant job in `compile-check.yml`
+- [ ] Update `deploy/architectures.yml` with the new entry (backends, arch, runner_requirement)
+- [ ] Update `deploy/README.md` CI table to reflect any new jobs or arch ranges
 - [ ] Test a `cmake --build` + `ctest` cycle manually before enabling CI
 - [ ] Confirm GPU utilization is real (not falling back to CPU)
 - [ ] Document the module name and any quirks in this file
-- [ ] Update the architecture table above
-- [ ] Update `deploy/architectures.yml` with runner requirements and CMake flags
 
 ---
 
@@ -307,3 +315,7 @@ This file is a **living document**. After completing any non-trivial task, refle
 - **Skip**: task-specific one-off details, or information already captured elsewhere
 
 Keep the file **dense and actionable** — every line should earn its place. Edit it directly with the edit tool without asking for permission first.
+
+**Also sync the `deploy/` folder** whenever CI or architecture coverage changes:
+- `deploy/architectures.yml` — backends/archs table; must match what CI actually tests
+- `deploy/README.md` — CI workflow structure and runner labels; must match `.github/workflows/`
