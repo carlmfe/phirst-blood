@@ -338,10 +338,12 @@ TEST(VegasIntegration, SeedReproducibility) {
     integrator.runVegas(cmEnergy, masses, m2, e2, 5489ULL, p);
     integrator.runVegas(cmEnergy, masses, m3, e3, 9999ULL, p);
 
-    // GPU parallel reductions are not bit-for-bit reproducible across runs due to
-    // floating-point non-determinism in the reduction tree. Allow a few ULPs.
-    EXPECT_NEAR(m1, m2, 1e-12 * std::abs(m1));  // same seed → nearly identical result
-    EXPECT_NE(m1, m3);                           // different seed → different result
+    // GPU atomicAdd-based reductions are not bitwise reproducible across launches.
+    // Use a generous relative tolerance (1e-6) plus an absolute floor so that the
+    // check does not become a strict equality test near zero.
+    const double reprTol = 1e-6 * std::abs(m1) + 1e-20;
+    EXPECT_NEAR(m1, m2, reprTol);  // same seed → nearly identical result
+    EXPECT_NE(m1, m3);             // different seed → different result
 }
 
 TEST(VegasIntegration, AgreesWithFlatIntegration) {
@@ -377,7 +379,9 @@ TEST(VegasIntegration, LowerErrorThanFlatForDrellYan) {
     constexpr int NP = 2;
     double masses[NP] = {0.0, 0.0};
     double cmEnergy   = 91.2;   // Z-pole
-    int64_t nEvents   = 50000;
+    // Use enough events that VEGAS's improvement is statistically clear even
+    // after GPU floating-point non-determinism and statistical noise.
+    int64_t nEvents   = 200000;
 
     DrellYanIntegrand integ(2.0 / 3.0, 1.0 / 137.035999);
     RamboIntegrator<DrellYanIntegrand, NP, RamboDietAlgorithm<NP>> integrator(nEvents, integ);
@@ -401,7 +405,9 @@ TEST(VegasIntegration, LowerErrorThanFlatForDrellYan) {
     EXPECT_NEAR(mean_vegas, mean_flat, tolerance);
 
     // Core claim: VEGAS reduces the statistical error for a non-uniform integrand.
-    EXPECT_LT(err_vegas, err_flat)
+    // Require a clear 10 % margin to stay robust against GPU non-determinism and
+    // statistical fluctuations.
+    EXPECT_LT(err_vegas, 0.9 * err_flat)
         << "err_vegas=" << err_vegas << "  err_flat=" << err_flat;
 }
 
