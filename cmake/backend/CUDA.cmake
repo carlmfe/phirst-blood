@@ -11,9 +11,21 @@ if(PHIRST_GPU_ARCH)
     set(CMAKE_CUDA_ARCHITECTURES "${_cuda_arch}" CACHE STRING "CUDA architectures" FORCE)
     message(STATUS "CUDA arch [user]: ${CMAKE_CUDA_ARCHITECTURES}")
 else()
-    detect_nvidia_architectures(_detected_cuda_archs)
-    set(CMAKE_CUDA_ARCHITECTURES "${_detected_cuda_archs}" CACHE STRING "CUDA architectures" FORCE)
-    message(STATUS "CUDA arch [auto]: ${CMAKE_CUDA_ARCHITECTURES}")
+    # Use CMake's "native" keyword — nvcc queries the GPU at compile time.
+    # This is CUDA-native; no external tools are required.
+    # Requires CMake >= 3.24.  For cross-compilation (no GPU on build host)
+    # set -DPHIRST_GPU_ARCH=<SM> explicitly.
+    if(CMAKE_VERSION VERSION_LESS "3.24")
+        message(FATAL_ERROR
+            "Auto-detection of CUDA architecture requires CMake >= 3.24 "
+            "(CMAKE_CUDA_ARCHITECTURES=native). "
+            "Either upgrade CMake or set -DPHIRST_GPU_ARCH=<SM>.")
+    endif()
+    set(CMAKE_CUDA_ARCHITECTURES "native" CACHE STRING "CUDA architectures" FORCE)
+    message(STATUS "CUDA arch [auto]: native (nvcc will query GPU at compile time)")
+    message(WARNING
+        "CUDA arch 'native' requires a GPU on the build host. "
+        "For cross-compilation, set -DPHIRST_GPU_ARCH=<SM number, e.g. 89>.")
 endif()
 
 include(CheckLanguage)

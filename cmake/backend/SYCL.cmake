@@ -69,106 +69,171 @@ target_compile_definitions(phirst_sycl INTERFACE PHIRST_BACKEND_SYCL)
 set(_PHIRST_EXPORT_TARGET phirst_sycl)
 
 # ---- Hardware target: resolve arch and apply flags ----
+# Detection philosophy: use only tools native to the selected driver.
+# No PATH searches for system-level tools.
+#
+#   CUDA/DPC++:  AOT when PHIRST_GPU_ARCH set; JIT (PTX) otherwise + WARNING.
+#                "native" is not supported by -fsycl — CUDA arch must be sm_XX.
+#   CUDA/ACPP:   ACPP_TARGETS env (set by module) > PHIRST_GPU_ARCH > FATAL.
+#   AMD/DPC++:   PHIRST_GPU_ARCH > detect_amd_architectures() > FATAL (always AOT).
+#   AMD/ACPP:    ACPP_TARGETS env > PHIRST_GPU_ARCH > detect_amd_architectures() > FATAL.
+#   INTEL/DPC++: JIT via Level Zero — no arch needed, always + WARNING.
+#   INTEL/ACPP:  ACPP_TARGETS env > PHIRST_GPU_ARCH > JIT + WARNING.
+
 if(SYCL_BACKEND STREQUAL "CUDA")
-    # Resolve SYCL/CUDA arch: PHIRST_GPU_ARCH (any format) > cached CUDA_GPU_ARCH > auto-detect.
-    # SYCL requires "sm_XX" prefix form; "native" keyword is not supported.
-    if(PHIRST_GPU_ARCH)
-        normalize_nvidia_arch_sycl("${PHIRST_GPU_ARCH}" _sycl_cuda_arch)
-        message(STATUS "SYCL CUDA arch [user]: ${_sycl_cuda_arch}")
-    elseif(DEFINED CACHE{CUDA_GPU_ARCH} AND NOT "$CACHE{CUDA_GPU_ARCH}" STREQUAL "")
-        set(_sycl_cuda_arch "$CACHE{CUDA_GPU_ARCH}")
-        message(STATUS "SYCL CUDA arch [cached]: ${_sycl_cuda_arch}")
-    else()
-        phirst_detect_hardware("SYCL_CUDA" _sycl_cuda_arch)
-        if(NOT _sycl_cuda_arch)
-            message(FATAL_ERROR
-                "SYCL/CUDA backend: no NVIDIA GPU detected and PHIRST_GPU_ARCH not set. "
-                "Specify the target architecture: -DPHIRST_GPU_ARCH=sm_89")
-        endif()
-        list(GET _sycl_cuda_arch 0 _sycl_cuda_arch)  # SYCL targets a single arch
-        message(STATUS "SYCL CUDA arch [auto]: ${_sycl_cuda_arch}")
-    endif()
-    set(CUDA_GPU_ARCH "${_sycl_cuda_arch}" CACHE STRING "CUDA GPU architecture for SYCL (e.g. sm_89)" FORCE)
     set(PHIRST_SYCL_BACKEND "CUDA")
-    set(PHIRST_SYCL_CUDA_ARCH "${CUDA_GPU_ARCH}")
 
     if(_sycl_use_acpp)
-        # acpp CUDA target: --acpp-targets=cuda:sm_XY
-        set(ACPP_EXTRA_COMPILE_OPTIONS "--acpp-targets=cuda:${CUDA_GPU_ARCH}"
-            CACHE STRING "AdaptiveCpp extra compile options" FORCE)
+        # ACPP CUDA: requires an explicit target (no PTX JIT in standard ACPP mode).
+        if(DEFINED ENV{ACPP_TARGETS} AND NOT "$ENV{ACPP_TARGETS}" STREQUAL "")
+            message(STATUS "SYCL CUDA arch [ACPP]: using ACPP_TARGETS from environment ($ENV{ACPP_TARGETS})")
+            set(ACPP_EXTRA_COMPILE_OPTIONS ""
+                CACHE STRING "AdaptiveCpp extra compile options" FORCE)
+            # Extract arch from ACPP_TARGETS for the install config.
+            string(REGEX MATCH "cuda:([^ ;,]+)" _acpp_cuda_match "$ENV{ACPP_TARGETS}")
+            if(CMAKE_MATCH_1)
+                normalize_nvidia_arch_sycl("${CMAKE_MATCH_1}" _sycl_cuda_arch)
+            else()
+                set(_sycl_cuda_arch "")
+            endif()
+        elseif(PHIRST_GPU_ARCH)
+            normalize_nvidia_arch_sycl("${PHIRST_GPU_ARCH}" _sycl_cuda_arch)
+            set(ACPP_EXTRA_COMPILE_OPTIONS "--acpp-targets=cuda:${_sycl_cuda_arch}"
+                CACHE STRING "AdaptiveCpp extra compile options" FORCE)
+            message(STATUS "SYCL CUDA arch [ACPP, user]: ${_sycl_cuda_arch}")
+        else()
+            message(FATAL_ERROR
+                "SYCL/CUDA with AdaptiveCpp requires an explicit target architecture.\n"
+                "Set -DPHIRST_GPU_ARCH=<SM, e.g. sm_89 or 89>, or set the\n"
+                "ACPP_TARGETS environment variable (e.g. 'cuda:sm_89'),\n"
+                "or load a module that sets ACPP_TARGETS automatically.")
+        endif()
     else()
-        target_compile_options(phirst_sycl INTERFACE
-            -fsycl
-            -fsycl-targets=nvptx64-nvidia-cuda
-            -Xsycl-target-backend
-            --cuda-gpu-arch=${CUDA_GPU_ARCH}
-        )
+        # DPC++: AOT if PHIRST_GPU_ARCH given; PTX JIT otherwise.
+        if(PHIRST_GPU_ARCH)
+            normalize_nvidia_arch_sycl("${PHIRST_GPU_ARCH}" _sycl_cuda_arch)
+            message(STATUS "SYCL CUDA arch [DPC++, user]: ${_sycl_cuda_arch}")
+            target_compile_options(phirst_sycl INTERFACE
+                -fsycl
+                -fsycl-targets=nvptx64-nvidia-cuda
+                -Xsycl-target-backend
+                --cuda-gpu-arch=${_sycl_cuda_arch}
+            )
+        else()
+            set(_sycl_cuda_arch "")
+            message(STATUS "SYCL CUDA arch [DPC++]: JIT (PTX) — no PHIRST_GPU_ARCH set")
+            message(WARNING
+                "SYCL/CUDA (DPC++) will use PTX JIT compilation.\n"
+                "The PTX binary is JIT-compiled by the CUDA driver at runtime.\n"
+                "This is valid but a GPU must be present at runtime.\n"
+                "For AOT compilation set -DPHIRST_GPU_ARCH=<SM, e.g. sm_89>.")
+            target_compile_options(phirst_sycl INTERFACE
+                -fsycl
+                -fsycl-targets=nvptx64-nvidia-cuda
+            )
+        endif()
         target_link_options(phirst_sycl INTERFACE
             -fsycl
             -fsycl-targets=nvptx64-nvidia-cuda
         )
     endif()
+    set(PHIRST_SYCL_CUDA_ARCH "${_sycl_cuda_arch}")
 
 elseif(SYCL_BACKEND STREQUAL "AMD")
-    # Resolve AMD arch: PHIRST_GPU_ARCH > PHIRST_AMD_GPU_ARCH cache > auto-detect
-    if(PHIRST_GPU_ARCH)
-        set(_sycl_amd_arch "${PHIRST_GPU_ARCH}")
-    elseif(DEFINED CACHE{PHIRST_AMD_GPU_ARCH} AND NOT "$CACHE{PHIRST_AMD_GPU_ARCH}" STREQUAL "")
-        set(_sycl_amd_arch "$CACHE{PHIRST_AMD_GPU_ARCH}")
-    else()
-        phirst_detect_hardware("SYCL_AMD" _sycl_amd_arch)
-    endif()
-    set(PHIRST_AMD_GPU_ARCH "${_sycl_amd_arch}" CACHE STRING "AMD GPU architecture for SYCL/AMD (e.g. gfx1100)" FORCE)
     set(PHIRST_SYCL_BACKEND "AMD")
-    set(PHIRST_SYCL_AMD_ARCH "${PHIRST_AMD_GPU_ARCH}")
+    # AMD targets always require AOT — no JIT path for amdgcn-amd-amdhsa.
 
     if(_sycl_use_acpp)
-        # acpp AMD target: --acpp-targets=hip:gfxXXXX
-        if(PHIRST_AMD_GPU_ARCH)
-            set(ACPP_EXTRA_COMPILE_OPTIONS "--acpp-targets=hip:${PHIRST_AMD_GPU_ARCH}"
+        # ACPP AMD: ACPP_TARGETS env > PHIRST_GPU_ARCH > detect_amd_architectures() > FATAL.
+        if(DEFINED ENV{ACPP_TARGETS} AND NOT "$ENV{ACPP_TARGETS}" STREQUAL "")
+            message(STATUS "SYCL AMD arch [ACPP]: using ACPP_TARGETS from environment ($ENV{ACPP_TARGETS})")
+            set(ACPP_EXTRA_COMPILE_OPTIONS ""
                 CACHE STRING "AdaptiveCpp extra compile options" FORCE)
-            message(STATUS "SYCL AMD arch: ${PHIRST_AMD_GPU_ARCH} (--acpp-targets=hip:${PHIRST_AMD_GPU_ARCH})")
+            string(REGEX MATCH "hip:([^ ;,]+)" _acpp_hip_match "$ENV{ACPP_TARGETS}")
+            set(_sycl_amd_arch "${CMAKE_MATCH_1}")
+        elseif(PHIRST_GPU_ARCH)
+            set(_sycl_amd_arch "${PHIRST_GPU_ARCH}")
+            set(ACPP_EXTRA_COMPILE_OPTIONS "--acpp-targets=hip:${_sycl_amd_arch}"
+                CACHE STRING "AdaptiveCpp extra compile options" FORCE)
+            message(STATUS "SYCL AMD arch [ACPP, user]: ${_sycl_amd_arch}")
         else()
-            message(STATUS "SYCL AMD: using ACPP_TARGETS from environment ($ENV{ACPP_TARGETS})")
+            detect_amd_architectures(_detected_amd)
+            if(_detected_amd)
+                list(GET _detected_amd 0 _sycl_amd_arch)
+                set(ACPP_EXTRA_COMPILE_OPTIONS "--acpp-targets=hip:${_sycl_amd_arch}"
+                    CACHE STRING "AdaptiveCpp extra compile options" FORCE)
+                message(STATUS "SYCL AMD arch [ACPP, auto]: ${_sycl_amd_arch}")
+            else()
+                message(FATAL_ERROR
+                    "SYCL/AMD with AdaptiveCpp requires an explicit target architecture.\n"
+                    "Set -DPHIRST_GPU_ARCH=<gfxXXXX>, or set the ACPP_TARGETS\n"
+                    "environment variable (e.g. 'hip:gfx1100'), or load a ROCm\n"
+                    "module that sets ROCM_PATH.")
+            endif()
         endif()
     else()
-        if(NOT PHIRST_AMD_GPU_ARCH)
-            message(WARNING "SYCL/AMD (DPC++): PHIRST_GPU_ARCH not set; defaulting to gfx1100. "
-                            "Pass -DPHIRST_GPU_ARCH=<arch> for your target GPU.")
-            set(PHIRST_AMD_GPU_ARCH "gfx1100")
+        # DPC++: PHIRST_GPU_ARCH > detect_amd_architectures() > FATAL.
+        if(PHIRST_GPU_ARCH)
+            set(_sycl_amd_arch "${PHIRST_GPU_ARCH}")
+            message(STATUS "SYCL AMD arch [DPC++, user]: ${_sycl_amd_arch}")
+        else()
+            detect_amd_architectures(_detected_amd)
+            if(_detected_amd)
+                list(GET _detected_amd 0 _sycl_amd_arch)
+                message(STATUS "SYCL AMD arch [DPC++, auto]: ${_sycl_amd_arch}")
+            else()
+                message(FATAL_ERROR
+                    "SYCL/AMD (DPC++) requires an explicit target architecture.\n"
+                    "Set -DPHIRST_GPU_ARCH=<gfxXXXX>, or load a ROCm module\n"
+                    "that sets the ROCM_PATH environment variable.")
+            endif()
         endif()
-        message(STATUS "SYCL AMD arch: ${PHIRST_AMD_GPU_ARCH} (-fsycl-targets=amdgcn-amd-amdhsa)")
         target_compile_options(phirst_sycl INTERFACE
             -fsycl
             -fsycl-targets=amdgcn-amd-amdhsa
             -Xsycl-target-backend
-            --offload-arch=${PHIRST_AMD_GPU_ARCH}
+            --offload-arch=${_sycl_amd_arch}
         )
         target_link_options(phirst_sycl INTERFACE
             -fsycl
             -fsycl-targets=amdgcn-amd-amdhsa
         )
     endif()
+    set(PHIRST_SYCL_AMD_ARCH "${_sycl_amd_arch}")
 
 elseif(SYCL_BACKEND STREQUAL "INTEL")
     set(PHIRST_SYCL_BACKEND "INTEL")
+    # Intel SYCL uses Level Zero / OpenCL JIT by default for both drivers.
 
     if(_sycl_use_acpp)
-        # AdaptiveCpp + Intel: arch strings are device-specific (e.g. level_zero:gpu).
-        # If PHIRST_GPU_ARCH is given, pass it; otherwise let ACPP_TARGETS from the
-        # environment (or acpp's default "generic" JIT) take effect.
-        if(PHIRST_GPU_ARCH)
+        # ACPP Intel: ACPP_TARGETS env > PHIRST_GPU_ARCH > JIT + WARNING.
+        if(DEFINED ENV{ACPP_TARGETS} AND NOT "$ENV{ACPP_TARGETS}" STREQUAL "")
+            message(STATUS "SYCL Intel arch [ACPP]: using ACPP_TARGETS from environment ($ENV{ACPP_TARGETS})")
+            set(ACPP_EXTRA_COMPILE_OPTIONS ""
+                CACHE STRING "AdaptiveCpp extra compile options" FORCE)
+        elseif(PHIRST_GPU_ARCH)
             set(ACPP_EXTRA_COMPILE_OPTIONS "--acpp-targets=${PHIRST_GPU_ARCH}"
                 CACHE STRING "AdaptiveCpp extra compile options" FORCE)
-            message(STATUS "SYCL Intel arch: ${PHIRST_GPU_ARCH} (--acpp-targets=${PHIRST_GPU_ARCH})")
+            message(STATUS "SYCL Intel arch [ACPP, user]: ${PHIRST_GPU_ARCH}")
         else()
-            message(STATUS "SYCL Intel (ACPP): using ACPP_TARGETS from environment ($ENV{ACPP_TARGETS})")
+            # JIT via SSCP / Level Zero — ACPP default for Intel.
+            message(STATUS "SYCL Intel [ACPP]: JIT via Level Zero (no explicit target set)")
+            message(WARNING
+                "SYCL/Intel with AdaptiveCpp will use generic JIT compilation.\n"
+                "To target a specific device set -DPHIRST_GPU_ARCH=<acpp-target-string>\n"
+                "or set the ACPP_TARGETS environment variable.")
         endif()
     else()
-        # DPC++: JIT compilation — no -fsycl-targets; icpx selects the best backend.
+        # DPC++: JIT is the natural default for Intel GPUs.
         target_compile_options(phirst_sycl INTERFACE -fsycl)
         target_link_options(phirst_sycl INTERFACE -fsycl)
+        message(STATUS "SYCL Intel [DPC++]: JIT via Level Zero")
+        message(WARNING
+            "SYCL/Intel (DPC++) will use JIT compilation.\n"
+            "The kernel is compiled by the Intel GPU driver at runtime.\n"
+            "This is the standard Intel SYCL workflow.")
     endif()
+    sycl_probe_intel_gpu()  # informational only
 
 else()
     message(FATAL_ERROR "Unknown SYCL_BACKEND '${SYCL_BACKEND}'. Valid values: CUDA, INTEL, AMD")

@@ -64,10 +64,19 @@ if(NOT TARGET "phirst::${_phirst_backend_lower}")
         # Downstream: set_source_files_properties(<sources> PROPERTIES LANGUAGE HIP)
     elseif(_phirst_backend STREQUAL "SYCL")
         if(_phirst_sycl_backend STREQUAL "CUDA")
-            set_property(TARGET "phirst::${_phirst_backend_lower}" APPEND PROPERTY
-                INTERFACE_COMPILE_OPTIONS
-                "-fsycl;-fsycl-targets=nvptx64-nvidia-cuda;-Xsycl-target-backend;--cuda-gpu-arch=${_phirst_sycl_cuda_arch}"
-            )
+            if(_phirst_sycl_cuda_arch)
+                # AOT: PTX compiled for a specific SM
+                set_property(TARGET "phirst::${_phirst_backend_lower}" APPEND PROPERTY
+                    INTERFACE_COMPILE_OPTIONS
+                    "-fsycl;-fsycl-targets=nvptx64-nvidia-cuda;-Xsycl-target-backend;--cuda-gpu-arch=${_phirst_sycl_cuda_arch}"
+                )
+            else()
+                # JIT: PTX compiled for any GPU at runtime
+                set_property(TARGET "phirst::${_phirst_backend_lower}" APPEND PROPERTY
+                    INTERFACE_COMPILE_OPTIONS
+                    "-fsycl;-fsycl-targets=nvptx64-nvidia-cuda"
+                )
+            endif()
             set_property(TARGET "phirst::${_phirst_backend_lower}" APPEND PROPERTY
                 INTERFACE_LINK_OPTIONS
                 "-fsycl;-fsycl-targets=nvptx64-nvidia-cuda"

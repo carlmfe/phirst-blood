@@ -11,6 +11,20 @@ message(STATUS "Kokkos version: ${Kokkos_VERSION}")
 message(STATUS "Kokkos devices: ${Kokkos_DEVICES}")
 if(Kokkos_ARCH)
     message(STATUS "Kokkos arch targets: ${Kokkos_ARCH}")
+else()
+    # Kokkos with GPU devices but no reported arch usually means the Kokkos install
+    # was built with auto-arch (KOKKOS_ARCH_AUTO); the compiler will select at build time.
+    foreach(_dev IN ITEMS "CUDA" "HIP" "SYCL")
+        if(_dev IN_LIST Kokkos_DEVICES)
+            message(WARNING
+                "Kokkos_ARCH is empty but GPU device '${_dev}' is enabled.\n"
+                "The Kokkos installation may have been built with KOKKOS_ARCH_AUTO=ON\n"
+                "and will auto-detect the GPU arch at compile time.\n"
+                "If you need a specific arch, rebuild Kokkos with "
+                "-DKokkos_ARCH_<TARGET>=ON (e.g. -DKokkos_ARCH_AMPERE89=ON).")
+            break()
+        endif()
+    endforeach()
 endif()
 
 add_library(phirst_kokkos INTERFACE)
