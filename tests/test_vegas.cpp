@@ -310,8 +310,9 @@ TEST(VegasIntegration, ConstantIntegrandFinitePositive) {
     ConstantIntegrand integ(1.0);
     RamboIntegrator<ConstantIntegrand, NP, RamboDietAlgorithm<NP>> integrator(nEvents, integ);
 
+    VegasParams p0; p0.verbose = false;
     double mean = 0.0, error = 0.0;
-    integrator.runVegas(cmEnergy, masses, mean, error, 5489ULL);
+    integrator.runVegas(cmEnergy, masses, mean, error, 5489ULL, p0);
 
     EXPECT_TRUE(isfinite(mean));
     EXPECT_TRUE(isfinite(error));
@@ -331,13 +332,18 @@ TEST(VegasIntegration, SeedReproducibility) {
     DrellYanIntegrand integ(2.0/3.0, 1.0/137.0);
     RamboIntegrator<DrellYanIntegrand, NP, RamboDietAlgorithm<NP>> integrator(nEvents, integ);
 
+    VegasParams p; p.verbose = false;
     double m1 = 0, e1 = 0, m2 = 0, e2 = 0, m3 = 0, e3 = 0;
-    integrator.runVegas(cmEnergy, masses, m1, e1, 5489ULL);
-    integrator.runVegas(cmEnergy, masses, m2, e2, 5489ULL);
-    integrator.runVegas(cmEnergy, masses, m3, e3, 9999ULL);
+    integrator.runVegas(cmEnergy, masses, m1, e1, 5489ULL, p);
+    integrator.runVegas(cmEnergy, masses, m2, e2, 5489ULL, p);
+    integrator.runVegas(cmEnergy, masses, m3, e3, 9999ULL, p);
 
-    EXPECT_DOUBLE_EQ(m1, m2);  // same seed → identical result
-    EXPECT_NE(m1, m3);         // different seed → different result
+    // GPU atomicAdd-based reductions are not bitwise reproducible across launches.
+    // Use a generous relative tolerance (1e-6) plus an absolute floor so that the
+    // check does not become a strict equality test near zero.
+    const double reprTol = 1e-6 * std::abs(m1) + 1e-20;
+    EXPECT_NEAR(m1, m2, reprTol);  // same seed → nearly identical result
+    EXPECT_NE(m1, m3);             // different seed → different result
 }
 
 TEST(VegasIntegration, AgreesWithFlatIntegration) {
@@ -355,7 +361,8 @@ TEST(VegasIntegration, AgreesWithFlatIntegration) {
     integrator.run(cmEnergy, masses, mean_flat, err_flat, 5489ULL);
 
     double mean_vegas = 0.0, err_vegas = 0.0;
-    integrator.runVegas(cmEnergy, masses, mean_vegas, err_vegas, 5489ULL);
+    VegasParams p; p.verbose = false;
+    integrator.runVegas(cmEnergy, masses, mean_vegas, err_vegas, 5489ULL, p);
 
     EXPECT_TRUE(isfinite(mean_flat));
     EXPECT_TRUE(isfinite(mean_vegas));
@@ -363,4 +370,74 @@ TEST(VegasIntegration, AgreesWithFlatIntegration) {
     // Allow 10 combined standard errors to avoid flakiness
     double tolerance = 10.0 * (err_flat + err_vegas);
     EXPECT_NEAR(mean_vegas, mean_flat, tolerance);
+}
+
+TEST(VegasIntegration, LowerErrorThanFlatForDrellYan) {
+    // VEGAS adapts to the (1 + cos²θ) angular shape of the Drell-Yan integrand,
+    // concentrating samples near |cosθ| = 1 where the weight is highest.
+    // With enough events the VEGAS error should be reliably below the flat error.
+    constexpr int NP = 2;
+    double masses[NP] = {0.0, 0.0};
+    double cmEnergy   = 91.2;   // Z-pole
+    // Use enough events that VEGAS's improvement is statistically clear even
+    // after GPU floating-point non-determinism and statistical noise.
+    int64_t nEvents   = 200000;
+
+    DrellYanIntegrand integ(2.0 / 3.0, 1.0 / 137.035999);
+    RamboIntegrator<DrellYanIntegrand, NP, RamboDietAlgorithm<NP>> integrator(nEvents, integ);
+
+    double mean_flat = 0.0, err_flat = 0.0;
+    integrator.run(cmEnergy, masses, mean_flat, err_flat, 5489ULL);
+
+    VegasParams p;
+    p.nIterations = 10;
+    p.verbose     = false;
+    double mean_vegas = 0.0, err_vegas = 0.0;
+    integrator.runVegas(cmEnergy, masses, mean_vegas, err_vegas, 5489ULL, p);
+
+    EXPECT_TRUE(isfinite(mean_flat));
+    EXPECT_TRUE(isfinite(mean_vegas));
+    EXPECT_GT(mean_flat,  0.0);
+    EXPECT_GT(mean_vegas, 0.0);
+
+    // VEGAS must agree with flat integration within generous statistical tolerance
+    double tolerance = 10.0 * (err_flat + err_vegas);
+    EXPECT_NEAR(mean_vegas, mean_flat, tolerance);
+
+    // Core claim: VEGAS reduces the statistical error for a non-uniform integrand.
+    // Require a clear 10 % margin to stay robust against GPU non-determinism and
+    // statistical fluctuations.
+    EXPECT_LT(err_vegas, 0.9 * err_flat)
+        << "err_vegas=" << err_vegas << "  err_flat=" << err_flat;
+}
+
+TEST(VegasIntegration, EarlyStopMeetsRelErrorThreshold) {
+    // With stopRelError set to a loose threshold, runVegas() should terminate
+    // before exhausting all nIterations and return a result whose relative error
+    // satisfies the requested threshold.
+    constexpr int NP = 2;
+    double masses[NP] = {0.0, 0.0};
+    double cmEnergy   = 91.2;
+    int64_t nEvents   = 50000;
+
+    DrellYanIntegrand integ(2.0 / 3.0, 1.0 / 137.035999);
+    RamboIntegrator<DrellYanIntegrand, NP, RamboDietAlgorithm<NP>> integrator(nEvents, integ);
+
+    VegasParams p;
+    p.nIterations   = 50;     // Generous upper bound
+    p.minIterations = 1;
+    p.stopRelError  = 0.5;    // Stop once rel. error ≤ 50 %
+    p.verbose       = false;
+
+    double mean = 0.0, error = 0.0;
+    integrator.runVegas(cmEnergy, masses, mean, error, 5489ULL, p);
+
+    EXPECT_TRUE(isfinite(mean));
+    EXPECT_TRUE(isfinite(error));
+    EXPECT_GT(mean, 0.0);
+
+    // The stopping condition: relative error should satisfy the requested threshold.
+    EXPECT_LE(error / mean, p.stopRelError)
+        << "error=" << error << "  mean=" << mean
+        << "  rel_error=" << error / mean;
 }

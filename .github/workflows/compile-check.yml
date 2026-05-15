@@ -1,0 +1,469 @@
+# Compile-check CI: consolidated into one file grouped by toolchain environment.
+#
+# Rationale: five separate workflow files (~21 parallel jobs) have been merged
+# into this single file with 4-5 jobs grouped by toolchain. This dramatically
+# reduces checkout/module-load overhead on every push: instead of 21 separate
+# environment setups, we have 4-5 jobs that each load modules once and run all
+# relevant arch configurations sequentially within the same shell environment.
+# Each compile step uses continue-on-error so all variants are attempted, then a
+# final gate step fails the job if any variant failed.
+#
+# Jobs:
+#   nvidia-toolchains — CUDA (5 arches), Alpaka/CUDA (sm_89), Kokkos/CUDA (sm_89)
+#   hip-toolchains    — HIP (4 arches), Kokkos/HIP (gfx1100), Alpaka/HIP (gfx1100)
+#   sycl-cuda         — SYCL/CUDA (5 arches)
+#   sycl-intel        — SYCL/Intel JIT, Kokkos/SYCL; Alpaka/SYCL disabled (needs libigc1)
+#   sycl-amd          — SYCL/AMD (4 arches, AdaptiveCpp via rocm/6.3 module)
+#
+# sm_70 (Volta) is excluded from all NVIDIA jobs — CUDA 13.0 dropped sm_70 support.
+
+name: Compile Check
+
+on:
+  push:
+    branches: [main, dev/**]
+    paths:
+      - 'include/**'
+      - 'examples/**'
+      - 'CMakeLists.txt'
+      - 'deploy/architectures.yml'
+      - '.github/workflows/compile-check.yml'
+  pull_request:
+    paths:
+      - 'include/**'
+      - 'examples/**'
+      - 'CMakeLists.txt'
+      - 'deploy/architectures.yml'
+      - '.github/workflows/compile-check.yml'
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # Job 1: NVIDIA toolchains — CUDA, Alpaka/CUDA, Kokkos/CUDA
+  # Modules loaded once per step via login shell (shell: bash -l {0}).
+  # sm_70 (Volta) excluded — CUDA 13.0 dropped sm_70 support.
+  # ---------------------------------------------------------------------------
+  nvidia-toolchains:
+    name: "NVIDIA toolchains (CUDA / Alpaka / Kokkos)"
+    runs-on: [self-hosted, gpu]
+    defaults:
+      run:
+        shell: bash -l {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "CUDA sm_75 (Turing)"
+        id: cuda_sm75
+        continue-on-error: true
+        run: |
+          module load cuda/13.0 kokkos/5.0.1 alpaka/2.0.0_cuda
+          cmake -S . -B build-cuda-75 \
+            -DPHIRST_BACKEND=CUDA \
+            -DPHIRST_GPU_ARCH=75 \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-cuda-75 --parallel && rm -rf build-cuda-75
+
+      - name: "CUDA sm_80 (Ampere / A100)"
+        id: cuda_sm80
+        continue-on-error: true
+        run: |
+          module load cuda/13.0 kokkos/5.0.1 alpaka/2.0.0_cuda
+          cmake -S . -B build-cuda-80 \
+            -DPHIRST_BACKEND=CUDA \
+            -DPHIRST_GPU_ARCH=80 \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-cuda-80 --parallel && rm -rf build-cuda-80
+
+      - name: "CUDA sm_86 (Ampere desktop / RTX 30xx)"
+        id: cuda_sm86
+        continue-on-error: true
+        run: |
+          module load cuda/13.0 kokkos/5.0.1 alpaka/2.0.0_cuda
+          cmake -S . -B build-cuda-86 \
+            -DPHIRST_BACKEND=CUDA \
+            -DPHIRST_GPU_ARCH=86 \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-cuda-86 --parallel && rm -rf build-cuda-86
+
+      - name: "CUDA sm_89 (Ada Lovelace / RTX 40xx — current runner)"
+        id: cuda_sm89
+        continue-on-error: true
+        run: |
+          module load cuda/13.0 kokkos/5.0.1 alpaka/2.0.0_cuda
+          cmake -S . -B build-cuda-89 \
+            -DPHIRST_BACKEND=CUDA \
+            -DPHIRST_GPU_ARCH=89 \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-cuda-89 --parallel && rm -rf build-cuda-89
+
+      - name: "CUDA sm_90 (Hopper / H100)"
+        id: cuda_sm90
+        continue-on-error: true
+        run: |
+          module load cuda/13.0 kokkos/5.0.1 alpaka/2.0.0_cuda
+          cmake -S . -B build-cuda-90 \
+            -DPHIRST_BACKEND=CUDA \
+            -DPHIRST_GPU_ARCH=90 \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-cuda-90 --parallel && rm -rf build-cuda-90
+
+      - name: "Alpaka/CUDA sm_89 (Ada Lovelace — arch coverage done by CUDA steps above)"
+        id: alpaka_cuda_sm89
+        continue-on-error: true
+        run: |
+          module load cuda/13.0 kokkos/5.0.1 alpaka/2.0.0_cuda
+          cmake -S . -B build-alpaka-cuda-89 \
+            -DPHIRST_BACKEND=ALPAKA \
+            -DPHIRST_GPU_ARCH=89 \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-alpaka-cuda-89 --parallel && rm -rf build-alpaka-cuda-89
+
+      - name: "Kokkos/CUDA (sm_89 baked into kokkos/5.0.1 module)"
+        id: kokkos_cuda
+        continue-on-error: true
+        # NOTE: do NOT set CMAKE_CXX_STANDARD before find_package(Kokkos).
+        # Kokkos sets its own compiler flags; overriding the standard beforehand
+        # can cause silent CUDA kernel failures.
+        run: |
+          module load cuda/13.0 kokkos/5.0.1 alpaka/2.0.0_cuda
+          cmake -S . -B build-kokkos-cuda \
+            -DPHIRST_BACKEND=KOKKOS \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-kokkos-cuda --parallel && rm -rf build-kokkos-cuda
+
+      - name: "Fail job if any NVIDIA toolchain compile failed"
+        if: always()
+        run: |
+          failed=0
+          [ "${{ steps.cuda_sm75.outcome }}" = "failure" ] && echo "CUDA sm_75 failed" && failed=1
+          [ "${{ steps.cuda_sm80.outcome }}" = "failure" ] && echo "CUDA sm_80 failed" && failed=1
+          [ "${{ steps.cuda_sm86.outcome }}" = "failure" ] && echo "CUDA sm_86 failed" && failed=1
+          [ "${{ steps.cuda_sm89.outcome }}" = "failure" ] && echo "CUDA sm_89 failed" && failed=1
+          [ "${{ steps.cuda_sm90.outcome }}" = "failure" ] && echo "CUDA sm_90 failed" && failed=1
+          [ "${{ steps.alpaka_cuda_sm89.outcome }}" = "failure" ] && echo "Alpaka/CUDA sm_89 failed" && failed=1
+          [ "${{ steps.kokkos_cuda.outcome }}" = "failure" ] && echo "Kokkos/CUDA failed" && failed=1
+          exit "$failed"
+
+  # ---------------------------------------------------------------------------
+  # Job 2: HIP toolchains — HIP (4 arches), Kokkos/HIP and Alpaka/HIP (disabled)
+  # Cross-compilation: HIP/clang++ targets any gfx* offline; no AMD GPU needed.
+  # ---------------------------------------------------------------------------
+  hip-toolchains:
+    name: "HIP toolchains (HIP / Kokkos / Alpaka)"
+    runs-on: [self-hosted, gpu]
+    defaults:
+      run:
+        shell: bash -l {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "HIP gfx908 (AMD MI100, CDNA1)"
+        id: hip_gfx908
+        continue-on-error: true
+        run: |
+          module load rocm/6.3
+          cmake -S . -B build-hip-gfx908 \
+            -DPHIRST_BACKEND=HIP \
+            -DPHIRST_GPU_ARCH=gfx908 \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-hip-gfx908 --parallel && rm -rf build-hip-gfx908
+
+      - name: "HIP gfx90a (AMD MI250/MI250X, CDNA2)"
+        id: hip_gfx90a
+        continue-on-error: true
+        run: |
+          module load rocm/6.3
+          cmake -S . -B build-hip-gfx90a \
+            -DPHIRST_BACKEND=HIP \
+            -DPHIRST_GPU_ARCH=gfx90a \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-hip-gfx90a --parallel && rm -rf build-hip-gfx90a
+
+      - name: "HIP gfx942 (AMD MI300X, CDNA3)"
+        id: hip_gfx942
+        continue-on-error: true
+        run: |
+          module load rocm/6.3
+          cmake -S . -B build-hip-gfx942 \
+            -DPHIRST_BACKEND=HIP \
+            -DPHIRST_GPU_ARCH=gfx942 \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-hip-gfx942 --parallel && rm -rf build-hip-gfx942
+
+      - name: "HIP gfx1100 (AMD RX 7900 XT, RDNA3)"
+        id: hip_gfx1100
+        continue-on-error: true
+        run: |
+          module load rocm/6.3
+          cmake -S . -B build-hip-gfx1100 \
+            -DPHIRST_BACKEND=HIP \
+            -DPHIRST_GPU_ARCH=gfx1100 \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-hip-gfx1100 --parallel && rm -rf build-hip-gfx1100
+
+      # kokkos/5.1.0-hip6.3 loads cuda/13.0 internally (likely a modulefile copy-paste;
+      # harmless for cross-compilation since we pass -DCMAKE_CXX_COMPILER=hipcc explicitly).
+      - name: "Kokkos/HIP gfx1100 (RDNA3 — representative arch)"
+        id: kokkos_hip
+        continue-on-error: true
+        run: |
+          module load rocm/6.3 kokkos/5.1.0-hip6.3
+          cmake -S . -B build-kokkos-hip \
+            -DPHIRST_BACKEND=KOKKOS \
+            -DCMAKE_CXX_COMPILER=hipcc \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-kokkos-hip --parallel && rm -rf build-kokkos-hip
+
+      - name: "Alpaka/HIP gfx1100 (RDNA3)"
+        id: alpaka_hip
+        continue-on-error: true
+        run: |
+          module load rocm/6.3 alpaka/2.0.0_hip6.3
+          cmake -S . -B build-alpaka-hip-gfx1100 \
+            -DPHIRST_BACKEND=ALPAKA \
+            -DCMAKE_CXX_COMPILER=hipcc \
+            -DPHIRST_GPU_ARCH=gfx1100 \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-alpaka-hip-gfx1100 --parallel && rm -rf build-alpaka-hip-gfx1100
+
+      - name: "Fail job if any HIP toolchain compile failed"
+        if: always()
+        run: |
+          failed=0
+          [ "${{ steps.hip_gfx908.outcome }}" = "failure" ] && echo "HIP gfx908 failed" && failed=1
+          [ "${{ steps.hip_gfx90a.outcome }}" = "failure" ] && echo "HIP gfx90a failed" && failed=1
+          [ "${{ steps.hip_gfx942.outcome }}" = "failure" ] && echo "HIP gfx942 failed" && failed=1
+          [ "${{ steps.hip_gfx1100.outcome }}" = "failure" ] && echo "HIP gfx1100 failed" && failed=1
+          [ "${{ steps.kokkos_hip.outcome }}" = "failure" ] && echo "Kokkos/HIP failed" && failed=1
+          [ "${{ steps.alpaka_hip.outcome }}" = "failure" ] && echo "Alpaka/HIP failed" && failed=1
+          exit "$failed"
+
+  # ---------------------------------------------------------------------------
+  # Job 3: SYCL/CUDA — SYCL backend targeting NVIDIA architectures via clang++
+  # sm_70 (Volta) excluded — aligning with the CUDA matrix (CUDA 13.0 dropped sm_70).
+  # ---------------------------------------------------------------------------
+  sycl-cuda:
+    name: "SYCL/CUDA toolchains"
+    runs-on: [self-hosted, gpu]
+    defaults:
+      run:
+        shell: bash -l {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "SYCL/CUDA sm_75 (Turing)"
+        id: sycl_cuda_sm75
+        continue-on-error: true
+        run: |
+          module load sycl/cuda
+          cmake -S . -B build-sycl-cuda-sm_75 \
+            -DPHIRST_BACKEND=SYCL \
+            -DSYCL_BACKEND=CUDA \
+            -DPHIRST_GPU_ARCH=sm_75 \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-sycl-cuda-sm_75 --parallel && rm -rf build-sycl-cuda-sm_75
+
+      - name: "SYCL/CUDA sm_80 (Ampere / A100)"
+        id: sycl_cuda_sm80
+        continue-on-error: true
+        run: |
+          module load sycl/cuda
+          cmake -S . -B build-sycl-cuda-sm_80 \
+            -DPHIRST_BACKEND=SYCL \
+            -DSYCL_BACKEND=CUDA \
+            -DPHIRST_GPU_ARCH=sm_80 \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-sycl-cuda-sm_80 --parallel && rm -rf build-sycl-cuda-sm_80
+
+      - name: "SYCL/CUDA sm_86 (Ampere desktop / RTX 30xx)"
+        id: sycl_cuda_sm86
+        continue-on-error: true
+        run: |
+          module load sycl/cuda
+          cmake -S . -B build-sycl-cuda-sm_86 \
+            -DPHIRST_BACKEND=SYCL \
+            -DSYCL_BACKEND=CUDA \
+            -DPHIRST_GPU_ARCH=sm_86 \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-sycl-cuda-sm_86 --parallel && rm -rf build-sycl-cuda-sm_86
+
+      - name: "SYCL/CUDA sm_89 (Ada Lovelace / RTX 40xx — current runner)"
+        id: sycl_cuda_sm89
+        continue-on-error: true
+        run: |
+          module load sycl/cuda
+          cmake -S . -B build-sycl-cuda-sm_89 \
+            -DPHIRST_BACKEND=SYCL \
+            -DSYCL_BACKEND=CUDA \
+            -DPHIRST_GPU_ARCH=sm_89 \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-sycl-cuda-sm_89 --parallel && rm -rf build-sycl-cuda-sm_89
+
+      - name: "SYCL/CUDA sm_90 (Hopper / H100)"
+        id: sycl_cuda_sm90
+        continue-on-error: true
+        run: |
+          module load sycl/cuda
+          cmake -S . -B build-sycl-cuda-sm_90 \
+            -DPHIRST_BACKEND=SYCL \
+            -DSYCL_BACKEND=CUDA \
+            -DPHIRST_GPU_ARCH=sm_90 \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-sycl-cuda-sm_90 --parallel && rm -rf build-sycl-cuda-sm_90
+
+      - name: "Fail job if any SYCL/CUDA compile failed"
+        if: always()
+        run: |
+          failed=0
+          [ "${{ steps.sycl_cuda_sm75.outcome }}" = "failure" ] && echo "SYCL/CUDA sm_75 failed" && failed=1
+          [ "${{ steps.sycl_cuda_sm80.outcome }}" = "failure" ] && echo "SYCL/CUDA sm_80 failed" && failed=1
+          [ "${{ steps.sycl_cuda_sm86.outcome }}" = "failure" ] && echo "SYCL/CUDA sm_86 failed" && failed=1
+          [ "${{ steps.sycl_cuda_sm89.outcome }}" = "failure" ] && echo "SYCL/CUDA sm_89 failed" && failed=1
+          [ "${{ steps.sycl_cuda_sm90.outcome }}" = "failure" ] && echo "SYCL/CUDA sm_90 failed" && failed=1
+          exit "$failed"
+
+  # ---------------------------------------------------------------------------
+  # Job 4: SYCL/Intel + Kokkos/SYCL; Alpaka/SYCL disabled (redundant)
+  # SYCL/Intel uses JIT (bare -fsycl, no AOT) — portable across all Intel GPUs.
+  # Note: Alpaka's SYCL backend requires AOT (-fsycl-targets=spir64_*) which
+  # needs Intel Compute Runtime libraries (libigc1 for GPU, libsvml.so for CPU).
+  # Since PHIRST_BACKEND_SYCL already supports JIT, Alpaka/SYCL is redundant.
+  # ---------------------------------------------------------------------------
+  sycl-intel:
+    name: "SYCL/Intel toolchains"
+    runs-on: [self-hosted, gpu]
+    defaults:
+      run:
+        shell: bash -l {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "SYCL/Intel JIT (spir64_gen, covers all Intel GPUs)"
+        id: sycl_intel
+        continue-on-error: true
+        run: |
+          module load oneapi/2026.0
+          cmake -S . -B build-sycl-intel \
+            -DPHIRST_BACKEND=SYCL \
+            -DSYCL_BACKEND=INTEL \
+            -DCMAKE_CXX_COMPILER=icpx \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-sycl-intel --parallel && rm -rf build-sycl-intel
+
+      - name: "Kokkos/SYCL (Intel GPU via icpx)"
+        id: kokkos_sycl
+        continue-on-error: true
+        run: |
+          module load oneapi/2026.0 kokkos/5.1.0-sycl
+          cmake -S . -B build-kokkos-sycl \
+            -DPHIRST_BACKEND=KOKKOS \
+            -DCMAKE_CXX_COMPILER=icpx \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-kokkos-sycl --parallel && rm -rf build-kokkos-sycl
+
+      # Alpaka/SYCL Intel GPU AOT requires AOT compilation with -fsycl-targets.
+      # This requires Intel Compute Runtime libraries (libigc1 for GPU or libsvml.so
+      # for CPU), which have complex subprocess linkage issues. Since
+      # PHIRST_BACKEND_SYCL already provides full SYCL support with JIT, Alpaka/SYCL
+      # is redundant. Keeping step for documentation; delete if never needed.
+      - name: "Alpaka/SYCL (disabled — use PHIRST_BACKEND_SYCL instead)"
+        if: false
+        run: |
+          module load oneapi/2026.0 alpaka/2.0.0_sycl
+          cmake -S . -B build-alpaka-sycl \
+            -DPHIRST_BACKEND=ALPAKA \
+            -DCMAKE_CXX_COMPILER=icpx \
+            -Dalpaka_SYCL_ONEAPI_GPU=ON \
+            -Dalpaka_SYCL_ONEAPI_GPU_DEVICES=intel_gpu_pvc \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-alpaka-sycl --parallel && rm -rf build-alpaka-sycl
+
+      - name: "Fail job if any SYCL/Intel toolchain compile failed"
+        if: always()
+        run: |
+          failed=0
+          [ "${{ steps.sycl_intel.outcome }}" = "failure" ] && echo "SYCL/Intel failed" && failed=1
+          [ "${{ steps.kokkos_sycl.outcome }}" = "failure" ] && echo "Kokkos/SYCL failed" && failed=1
+          exit "$failed"
+
+  # ---------------------------------------------------------------------------
+  # Job 5: SYCL/AMD — AdaptiveCpp (acpp) via rocm/<ver> module
+  # AdaptiveCpp compiles SYCL for AMD GPUs using HIP as the device backend.
+  # Four AOT targets covering CDNA1–3 and RDNA3; rocm/6.3 module provides acpp.
+  # ---------------------------------------------------------------------------
+  sycl-amd:
+    name: "SYCL/AMD toolchains (AdaptiveCpp)"
+    runs-on: [self-hosted, gpu]
+    defaults:
+      run:
+        shell: bash -l {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "SYCL/AMD gfx908 (AMD MI100, CDNA1)"
+        id: sycl_amd_gfx908
+        continue-on-error: true
+        run: |
+          module load rocm/6.3
+          cmake -S . -B build-sycl-amd-gfx908 \
+            -DPHIRST_BACKEND=SYCL \
+            -DSYCL_BACKEND=AMD \
+            -DPHIRST_GPU_ARCH=gfx908 \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-sycl-amd-gfx908 --parallel && rm -rf build-sycl-amd-gfx908
+
+      - name: "SYCL/AMD gfx90a (AMD MI250/MI250X, CDNA2)"
+        id: sycl_amd_gfx90a
+        continue-on-error: true
+        run: |
+          module load rocm/6.3
+          cmake -S . -B build-sycl-amd-gfx90a \
+            -DPHIRST_BACKEND=SYCL \
+            -DSYCL_BACKEND=AMD \
+            -DPHIRST_GPU_ARCH=gfx90a \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-sycl-amd-gfx90a --parallel && rm -rf build-sycl-amd-gfx90a
+
+      - name: "SYCL/AMD gfx942 (AMD MI300X, CDNA3)"
+        id: sycl_amd_gfx942
+        continue-on-error: true
+        run: |
+          module load rocm/6.3
+          cmake -S . -B build-sycl-amd-gfx942 \
+            -DPHIRST_BACKEND=SYCL \
+            -DSYCL_BACKEND=AMD \
+            -DPHIRST_GPU_ARCH=gfx942 \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-sycl-amd-gfx942 --parallel && rm -rf build-sycl-amd-gfx942
+
+      - name: "SYCL/AMD gfx1100 (AMD RX 7900 XT, RDNA3)"
+        id: sycl_amd_gfx1100
+        continue-on-error: true
+        run: |
+          module load rocm/6.3
+          cmake -S . -B build-sycl-amd-gfx1100 \
+            -DPHIRST_BACKEND=SYCL \
+            -DSYCL_BACKEND=AMD \
+            -DPHIRST_GPU_ARCH=gfx1100 \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-sycl-amd-gfx1100 --parallel && rm -rf build-sycl-amd-gfx1100
+
+      - name: Fail job if any SYCL/AMD step failed
+        if: always()
+        run: |
+          failed=0
+          [ "${{ steps.sycl_amd_gfx908.outcome }}"  = "failure" ] && echo "gfx908 failed"  && failed=1
+          [ "${{ steps.sycl_amd_gfx90a.outcome }}"  = "failure" ] && echo "gfx90a failed"  && failed=1
+          [ "${{ steps.sycl_amd_gfx942.outcome }}"  = "failure" ] && echo "gfx942 failed"  && failed=1
+          [ "${{ steps.sycl_amd_gfx1100.outcome }}" = "failure" ] && echo "gfx1100 failed" && failed=1
+          exit "$failed"

@@ -133,14 +133,15 @@ architectures:
         note: "Arch baked into Kokkos module; see nvidia-v100 note."
 
   # ---------------------------------------------------------------------------
-  # AMD — HIP, Kokkos/HIP, and SYCL/AMD backends
-  # Runner: self-hosted-amd — NOT YET AVAILABLE
+  # AMD — HIP, Kokkos/HIP, Alpaka/HIP, and SYCL/AMD (AdaptiveCpp) backends
+  # Runner: self-hosted-amd — NOT YET AVAILABLE for execution tests.
+  # Compile-check CI runs on self-hosted-gpu via ROCm 6.3 cross-compilation.
   #
   # Current CMakeLists.txt status:
   #   - HIP: full support
-  #   - Kokkos/HIP: works if Kokkos was built with HIP (Kokkos_ARCH_AMD_GFXxxx)
-  #   - SYCL/AMD: AOT flags (-fsycl-targets=amdgcn-amd-amdhsa --offload-arch=<gfx>)
-  #               emitted correctly; PHIRST_AMD_GPU_ARCH selects the target arch.
+  #   - Kokkos/HIP: works with Kokkos built for HIP (kokkos/5.1.0-hip6.3 module)
+  #   - Alpaka/HIP: works with alpaka/2.0.0_hip6.3 module
+  #   - SYCL/AMD: uses AdaptiveCpp (provided by rocm/6.3 module); SYCL_DRIVER=ACPP
   # ---------------------------------------------------------------------------
 
   - id: amd-mi100
@@ -154,9 +155,13 @@ architectures:
       kokkos:
         arch: "AMD_GFX908"
         note: "Requires Kokkos built with HIP (Kokkos_ENABLE_HIP + Kokkos_ARCH_AMD_GFX908)"
+      alpaka:
+        arch: "gfx908"
+        note: "Requires alpaka built with HIP backend (alpaka/2.0.0_hip6.3 module)"
       sycl:
         backend: AMD
         arch: "gfx908"
+        note: "Uses AdaptiveCpp (acpp) from rocm/6.3 module; SYCL_DRIVER=ACPP auto-detected"
 
   - id: amd-mi250
     name: "AMD MI250 / MI250X (CDNA2)"
@@ -169,9 +174,13 @@ architectures:
       kokkos:
         arch: "AMD_GFX90A"
         note: "Requires Kokkos built with HIP (Kokkos_ENABLE_HIP + Kokkos_ARCH_AMD_GFX90A)"
+      alpaka:
+        arch: "gfx90a"
+        note: "Requires alpaka built with HIP backend (alpaka/2.0.0_hip6.3 module)"
       sycl:
         backend: AMD
         arch: "gfx90a"
+        note: "Uses AdaptiveCpp (acpp) from rocm/6.3 module; SYCL_DRIVER=ACPP auto-detected"
 
   - id: amd-mi300x
     name: "AMD MI300X (CDNA3)"
@@ -184,9 +193,13 @@ architectures:
       kokkos:
         arch: "AMD_GFX942"
         note: "Requires Kokkos built with HIP (Kokkos_ENABLE_HIP + Kokkos_ARCH_AMD_GFX942)"
+      alpaka:
+        arch: "gfx942"
+        note: "Requires alpaka built with HIP backend (alpaka/2.0.0_hip6.3 module)"
       sycl:
         backend: AMD
         arch: "gfx942"
+        note: "Uses AdaptiveCpp (acpp) from rocm/6.3 module; SYCL_DRIVER=ACPP auto-detected"
 
   - id: amd-rdna3-desktop
     name: "AMD RX 7900 XT (RDNA3)"
@@ -196,17 +209,25 @@ architectures:
     backends:
       hip:
         arch: "gfx1100"
+      kokkos:
+        arch: "AMD_GFX1100"
+        note: "Requires Kokkos built with HIP (kokkos/5.1.0-hip6.3 module); representative arch in CI"
+      alpaka:
+        arch: "gfx1100"
+        note: "Requires alpaka built with HIP backend (alpaka/2.0.0_hip6.3 module); representative arch in CI"
       sycl:
         backend: AMD
         arch: "gfx1100"
+        note: "Uses AdaptiveCpp (acpp) from rocm/6.3 module; SYCL_DRIVER=ACPP auto-detected"
 
   # ---------------------------------------------------------------------------
-  # Intel — SYCL/Intel backend only
+  # Intel — SYCL/Intel and Kokkos/SYCL backends
   # Runner: self-hosted-intel — NOT YET AVAILABLE
   #
   # Current CMakeLists.txt status:
-  #   SYCL_BACKEND=INTEL emits -fsycl -fsycl-targets=spir64_gen (JIT-within-AOT).
+  #   SYCL_BACKEND=INTEL with DPC++ (icpx) emits bare -fsycl (pure JIT).
   #   This covers all Intel GPUs at runtime; no per-device ocloc ID is needed.
+  #   Kokkos/SYCL is tested via the kokkos/5.1.0-sycl module with icpx.
   # ---------------------------------------------------------------------------
 
   - id: intel-pvc
@@ -218,6 +239,9 @@ architectures:
       sycl:
         backend: INTEL
         arch: "spir64_gen"
+        note: "DPC++ (icpx): bare -fsycl JIT; no PHIRST_GPU_ARCH needed"
+      kokkos:
+        note: "Requires Kokkos built with SYCL (kokkos/5.1.0-sycl module) and icpx"
 
   - id: intel-arc-desktop
     name: "Intel Arc A770 (Alchemist)"
@@ -228,3 +252,6 @@ architectures:
       sycl:
         backend: INTEL
         arch: "spir64_gen"
+        note: "DPC++ (icpx): bare -fsycl JIT; no PHIRST_GPU_ARCH needed"
+      kokkos:
+        note: "Requires Kokkos built with SYCL (kokkos/5.1.0-sycl module) and icpx"
