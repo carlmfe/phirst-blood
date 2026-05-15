@@ -119,7 +119,9 @@ extern "C" __global__ void phirst_numba_mc_kernel(
         uint64_t rng = phirst::initRngState(baseSeed, workIdx);
         double momentaFlat[kMaxNumbaParticles * 4] = {};
         double logWeight = massless_rambo_generate(cmEnergy, nParticles, rng, momentaFlat);
-        double integrandValue = phirst_user_integrand(momentaFlat, nParticles);
+        double integrandValue = 0.0;
+        int rc = phirst_user_integrand(&integrandValue, momentaFlat, nParticles);
+        (void)rc;
         double weightedValue = phirst::math::exp(logWeight) * integrandValue;
 
         atomicAdd(sumOut, weightedValue);

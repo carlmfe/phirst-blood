@@ -201,36 +201,40 @@ def _require_numba_cuda():
 
 def _extract_ptx(device_function: Any, python_name: str) -> bytes:
     numba, _ = _require_numba_cuda()
-    signature = (numba.float64[::1], numba.int32)
+    from numba.core import types as nbtypes
 
-    compile_fn = getattr(device_function, "compile", None)
-    if callable(compile_fn):
-        try:
-            compile_fn(signature)
-        except TypeError:
-            pass
+    # Use CPointer(float64) so momenta_flat is a raw double* — compatible with the
+    # Numba float64 ABI: hidden return-value pointer is param_0, momenta is param_1.
+    signature = (nbtypes.CPointer(nbtypes.float64), nbtypes.int32)
 
-    ptx_blob: Any = None
-    inspect_ptx = getattr(device_function, "inspect_ptx", None)
-    if callable(inspect_ptx):
-        for args in ((), (signature,)):
+    # For device=True functions (CUDADispatcher with device flag), use compile_device.
+    # For regular kernels, use compile. Both may raise — suppress all exceptions.
+    for method_name in ("compile_device", "compile"):
+        compile_fn = getattr(device_function, method_name, None)
+        if callable(compile_fn):
             try:
-                ptx_blob = inspect_ptx(*args)
-                if ptx_blob:
-                    break
-            except TypeError:
+                compile_fn(signature)
+                break
+            except Exception:
                 continue
 
-    if not ptx_blob:
-        inspect_asm = getattr(device_function, "inspect_asm", None)
-        if callable(inspect_asm):
-            for args in ((signature,), ()):
-                try:
-                    ptx_blob = inspect_asm(*args)
-                    if ptx_blob:
-                        break
-                except TypeError:
-                    continue
+    ptx_blob: Any = None
+
+    # inspect_asm returns PTX for CUDA (as string or dict); prefer it over inspect_ptx
+    # because Numba ≥ 0.65 device functions expose inspect_asm but not inspect_ptx.
+    for method_name in ("inspect_asm", "inspect_ptx"):
+        inspect_fn = getattr(device_function, method_name, None)
+        if not callable(inspect_fn):
+            continue
+        for args in ((signature,), ()):
+            try:
+                ptx_blob = inspect_fn(*args)
+                if ptx_blob:
+                    break
+            except Exception:
+                continue
+        if ptx_blob:
+            break
 
     ptx_bytes = _normalise_ptx_blob(ptx_blob)
     if ptx_bytes is None:
@@ -265,24 +269,25 @@ def _rename_ptx_symbol(ptx_bytes: bytes, python_name: str) -> bytes:
     if "phirst_user_integrand" in ptx_text:
         return ptx_bytes
 
+    # Match PTX .func declaration:  .visible .func (rettype) funcname (
+    # Groups: (1) prefix+.func,  (2) optional return-type paren,
+    #         (3) function name,  (4) opening arg-paren
     specific_re = re.compile(
-        rf"(?m)^(\\s*(?:\\.visible\\s+)?\\.func\\s+)(\\([^)]*\\)\\s+)?"
-        rf"({re.escape(python_name)})(\\s*\\()"
+        r"(?m)^(\s*(?:\.visible\s+)?\.func\s+)(\([^)]*\)\s+)?"
+        + re.escape(python_name)
+        + r"(\s*\()"
     )
     renamed_ptx, count = specific_re.subn(
-        lambda match: (
-            f"{match.group(1)}{match.group(2) or ''}phirst_user_integrand{match.group(4)}"
-        ),
+        lambda m: f"{m.group(1)}{m.group(2) or ''}phirst_user_integrand{m.group(3)}",
         ptx_text,
         count=1,
     )
     if count == 1:
         return renamed_ptx.encode("utf-8")
 
+    # Fallback: rename the first .func declaration we find
     renamed_ptx, count = _PTX_FUNCTION_RE.subn(
-        lambda match: (
-            f"{match.group(1)}{match.group(2) or ''}phirst_user_integrand{match.group(4)}"
-        ),
+        lambda m: f"{m.group(1)}{m.group(2) or ''}phirst_user_integrand{m.group(4)}",
         ptx_text,
         count=1,
     )

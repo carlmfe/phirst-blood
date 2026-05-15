@@ -143,7 +143,7 @@ extern "C" int phirst_link_and_launch(
     if (context == nullptr) {
         CUdevice device = 0;
         PHIRST_CU_TRY(cuDeviceGet(&device, 0), "cuDeviceGet");
-        PHIRST_CU_TRY(cuCtxCreate(&context, 0, device), "cuCtxCreate");
+        PHIRST_CU_TRY(cuCtxCreate(&context, nullptr, 0, device), "cuCtxCreate");
         createdContext = true;
     }
 

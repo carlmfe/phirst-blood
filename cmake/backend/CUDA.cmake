@@ -60,6 +60,69 @@ if(PHIRST_BUILD_EXAMPLES)
     target_link_libraries(${EXENAME_EGG} PRIVATE phirst::cuda)
 endif()
 
+if(PHIRST_NUMBA_BRIDGE)
+    find_package(CUDAToolkit REQUIRED)
+
+    set(_phirst_numba_bridge_object
+        ${CMAKE_CURRENT_BINARY_DIR}/phirst_numba_bridge_device.o)
+    set(_phirst_numba_bridge_arch_flag "")
+    if(CMAKE_CUDA_ARCHITECTURES)
+        set(_phirst_numba_bridge_arch_list ${CMAKE_CUDA_ARCHITECTURES})
+        list(GET _phirst_numba_bridge_arch_list 0 _phirst_numba_bridge_arch)
+        if(_phirst_numba_bridge_arch MATCHES "^[0-9]+$")
+            set(_phirst_numba_bridge_arch_flag
+                -arch=sm_${_phirst_numba_bridge_arch})
+        endif()
+    endif()
+
+    add_custom_command(
+        OUTPUT ${_phirst_numba_bridge_object}
+        COMMAND ${CMAKE_CUDA_COMPILER}
+            --compile
+            -rdc=true
+            -std=c++20
+            -Xcompiler=-fPIC
+            ${_phirst_numba_bridge_arch_flag}
+            --expt-extended-lambda
+            -DPHIRST_BACKEND_CUDA
+            -I${CMAKE_CURRENT_SOURCE_DIR}/include
+            -o ${_phirst_numba_bridge_object}
+            ${CMAKE_CURRENT_SOURCE_DIR}/python/src/numba_bridge.cu
+        DEPENDS
+            ${CMAKE_CURRENT_SOURCE_DIR}/python/src/numba_bridge.cu
+            ${CMAKE_CURRENT_SOURCE_DIR}/include/phirst/backend/numba_bridge.cuh
+            ${CMAKE_CURRENT_SOURCE_DIR}/include/phirst/backend/random.hpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/include/phirst/backend/math.hpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/include/phirst/backend/config.hpp
+        VERBATIM
+    )
+    add_custom_target(phirst_numba_bridge_rdc DEPENDS ${_phirst_numba_bridge_object})
+
+    # numba_launcher.cu is pure CUDA Driver API (host code only).
+    # Compile it as C++ to avoid separable compilation stubs.
+    set_source_files_properties(python/src/numba_launcher.cu PROPERTIES
+        LANGUAGE CXX
+        COMPILE_OPTIONS "-x;c++"
+    )
+    add_library(phirst_numba_bridge SHARED python/src/numba_launcher.cu)
+    add_dependencies(phirst_numba_bridge phirst_numba_bridge_rdc)
+    target_include_directories(phirst_numba_bridge PRIVATE
+        include
+        ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}
+    )
+    target_link_libraries(phirst_numba_bridge PRIVATE CUDA::cuda_driver ${CMAKE_DL_LIBS})
+    target_compile_definitions(phirst_numba_bridge PRIVATE
+        PHIRST_BACKEND_CUDA
+        PHIRST_NUMBA_BRIDGE_OBJECT_FILENAME="phirst_numba_bridge_device.o"
+    )
+    add_custom_command(TARGET phirst_numba_bridge POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${_phirst_numba_bridge_object}
+            $<TARGET_FILE_DIR:phirst_numba_bridge>/phirst_numba_bridge_device.o
+    )
+    set(_phirst_numba_bridge_object ${_phirst_numba_bridge_object})
+endif()
+
 if(PHIRST_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
