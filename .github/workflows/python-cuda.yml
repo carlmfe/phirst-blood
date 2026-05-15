@@ -53,6 +53,7 @@ jobs:
         shell: bash -l {0}
         run: |
           cp build-numba-bridge/libphirst_numba_bridge.so python/phirst/
+          cp build-numba-bridge/phirst_numba_bridge_device.o python/phirst/
 
       - name: Run Python tests
         shell: bash -l {0}
