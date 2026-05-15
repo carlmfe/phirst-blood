@@ -19,10 +19,10 @@ jobs:
         run: |
           if command -v uv >/dev/null 2>&1; then
             uv venv --clear
-            uv pip install scikit-build-core nanobind pytest
+            uv pip install scikit-build-core nanobind pytest numba
           else
             python3 -m venv .venv
-            .venv/bin/pip install scikit-build-core nanobind pytest
+            .venv/bin/pip install scikit-build-core nanobind pytest numba
           fi
 
       - name: Build Python bindings (CUDA)
@@ -36,6 +36,23 @@ jobs:
             .venv/bin/pip install -e . --no-build-isolation \
               -Ccmake.args="-DPHIRST_PYTHON_BINDINGS=ON;-DPHIRST_BACKEND=CUDA;-DPHIRST_GPU_ARCH=89"
           fi
+
+      - name: Build Numba GPU bridge
+        shell: bash -l {0}
+        run: |
+          module load cuda/13.0
+          cmake -S . -B build-numba-bridge \
+            -DPHIRST_BACKEND=CUDA \
+            -DPHIRST_NUMBA_BRIDGE=ON \
+            -DPHIRST_BUILD_TESTS=OFF \
+            -DPHIRST_PYTHON_BINDINGS=OFF \
+            -DPHIRST_GPU_ARCH=89
+          cmake --build build-numba-bridge --target phirst_numba_bridge --parallel
+
+      - name: Install Numba bridge into Python package
+        shell: bash -l {0}
+        run: |
+          cp build-numba-bridge/libphirst_numba_bridge.so python/phirst/
 
       - name: Run Python tests
         shell: bash -l {0}
