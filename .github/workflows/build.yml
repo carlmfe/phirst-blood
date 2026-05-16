@@ -1,11 +1,14 @@
-# Consolidated build-and-test workflow for all NVIDIA-runner backends.
+# Build-and-benchmark workflow for all NVIDIA-runner backends.
 #
-# Sequential steps are run with continue-on-error so all backends are attempted.
-# A final explicit gate in each job fails the job if any backend step failed.
+# A single job runs all backends sequentially (continue-on-error per step) so that
+# all build directories remain available for the cross-backend benchmark at the end.
 #
-# Two jobs:
-#   nvidia-builds — SERIAL, CUDA, Kokkos, Alpaka (sequential, continue-on-error)
-#   sycl-build    — SYCL/CUDA (separate job; uses a different compiler toolchain)
+# Structure:
+#   1. Build + test each backend (continue-on-error; no rm -rf between steps)
+#   2. Run bench/benchmark.sh across all surviving build directories
+#   3. Write a GitHub step summary and upload a benchmark log artifact
+#   4. Gate: fail the job if any build failed OR (on main) if consistency check failed
+#   5. Clean up all build directories
 #
 # build-hip.yml is unchanged (workflow_dispatch only; AMD runner).
 
@@ -17,7 +20,7 @@ on:
   pull_request:
 
 jobs:
-  nvidia-builds:
+  build-and-benchmark:
     runs-on: [self-hosted, gpu]
     defaults:
       run:
@@ -27,6 +30,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      # ------------------------------------------------------------------
+      # Build + test each backend (keep build dirs for the benchmark step)
+      # ------------------------------------------------------------------
 
       - name: Build & test — SERIAL
         id: build_serial
@@ -38,7 +45,6 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-serial --parallel
           ctest --test-dir build-serial --output-on-failure
-          rm -rf build-serial
 
       - name: Build & test — CUDA
         id: build_cuda
@@ -52,13 +58,12 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-cuda --parallel
           ctest --test-dir build-cuda --output-on-failure
-          rm -rf build-cuda
 
       - name: Build & test — Kokkos
         id: build_kokkos
         continue-on-error: true
-        # Note: kokkos/5.0.1 is built with CUDA; arch is baked into the module (sm_89)
-        # Do not override CMAKE_CXX_STANDARD; the module sets the compiler correctly.
+        # kokkos/5.0.1 is built with CUDA; arch is baked into the module (sm_89).
+        # Do not set CMAKE_CXX_STANDARD before find_package(Kokkos).
         run: |
           module load kokkos/5.0.1
           cmake -S . -B build-kokkos \
@@ -67,7 +72,6 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-kokkos --parallel
           ctest --test-dir build-kokkos --output-on-failure
-          rm -rf build-kokkos
 
       - name: Build & test — Alpaka
         id: build_alpaka
@@ -81,31 +85,9 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-alpaka --parallel
           ctest --test-dir build-alpaka --output-on-failure
-          rm -rf build-alpaka
-
-      - name: Fail job if any backend failed
-        if: always()
-        run: |
-          failed=0
-          [ "${{ steps.build_serial.outcome }}" = "failure" ] && echo "SERIAL failed" && failed=1
-          [ "${{ steps.build_cuda.outcome }}" = "failure" ] && echo "CUDA failed" && failed=1
-          [ "${{ steps.build_kokkos.outcome }}" = "failure" ] && echo "Kokkos failed" && failed=1
-          [ "${{ steps.build_alpaka.outcome }}" = "failure" ] && echo "Alpaka failed" && failed=1
-          exit "$failed"
-
-  sycl-build:
-    runs-on: [self-hosted, gpu]
-    defaults:
-      run:
-        shell: bash -l {0}
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Build & test — SYCL/CUDA
-        id: build_sycl_cuda
+        id: build_sycl
         continue-on-error: true
         run: |
           module load sycl/cuda
@@ -118,9 +100,70 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-sycl --parallel
           ctest --test-dir build-sycl --output-on-failure
-          rm -rf build-sycl
 
-      - name: Fail job if SYCL/CUDA failed
+      # ------------------------------------------------------------------
+      # Cross-backend benchmark (uses whichever build dirs exist)
+      # ------------------------------------------------------------------
+
+      - name: Run benchmark
+        id: benchmark
+        if: always()
+        continue-on-error: true
+        run: |
+          bench/benchmark.sh --check --no-color 10000000 5489 3 2>&1 | tee benchmark.log
+          echo "bench_exit=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Write step summary
         if: always()
         run: |
-          [ "${{ steps.build_sycl_cuda.outcome }}" = "failure" ] && exit 1 || exit 0
+          {
+            echo "## Benchmark Results"
+            echo ""
+            echo "**Commit**: \`${{ github.sha }}\`"
+            echo "**GPU**: $(nvidia-smi -L 2>/dev/null | head -1 || echo 'unknown')"
+            echo ""
+            echo "\`\`\`"
+            cat benchmark.log 2>/dev/null || echo "(no benchmark output)"
+            echo "\`\`\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload benchmark log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-${{ github.sha }}
+          path: benchmark.log
+          retention-days: 90
+          if-no-files-found: warn
+
+      # ------------------------------------------------------------------
+      # Gate: fail the job if builds or (on main) consistency check failed
+      # ------------------------------------------------------------------
+
+      - name: Check results
+        if: always()
+        run: |
+          failed=0
+          [ "${{ steps.build_serial.outcome }}" = "failure" ] && echo "SERIAL build failed"   && failed=1
+          [ "${{ steps.build_cuda.outcome }}"   = "failure" ] && echo "CUDA build failed"     && failed=1
+          [ "${{ steps.build_kokkos.outcome }}" = "failure" ] && echo "Kokkos build failed"   && failed=1
+          [ "${{ steps.build_alpaka.outcome }}" = "failure" ] && echo "Alpaka build failed"   && failed=1
+          [ "${{ steps.build_sycl.outcome }}"   = "failure" ] && echo "SYCL build failed"     && failed=1
+
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            bench_exit="${{ steps.benchmark.outputs.bench_exit }}"
+            if [ "${bench_exit}" != "0" ]; then
+              echo "Benchmark consistency check failed on main — backends disagree."
+              failed=1
+            fi
+          fi
+
+          exit $failed
+
+      # ------------------------------------------------------------------
+      # Cleanup (always runs to free disk space)
+      # ------------------------------------------------------------------
+
+      - name: Cleanup build directories
+        if: always()
+        run: rm -rf build-serial build-cuda build-kokkos build-alpaka build-sycl benchmark.log

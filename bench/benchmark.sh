@@ -5,7 +5,7 @@
 # Runs existing ex_drell_yan_<backend> and ex_eggholder_<backend> executables (no builds performed).
 #
 # Usage: ./benchmark.sh [num_events] [seed] [num_runs] [--test all|drell-yan|eggholder] [--mode all|vegas|flat]
-#                       [--check] [--sigma N]
+#                       [--check] [--sigma N] [--no-color]
 #        ./benchmark.sh             # Default: 10M events, seed 5489, 3 runs, all tests, all modes
 #        ./benchmark.sh 1000000 5489 3 --test eggholder --mode vegas
 #        ./benchmark.sh --check --sigma 3   # Exit with error if backends differ by >3σ or >5x throughput gap
@@ -23,6 +23,7 @@
 #   --mode <name>   Which integration mode to run: 'all', 'vegas', or 'flat' (default: all)
 #   --check         Exit with code 1 if any consistency check fails (for CI use)
 #   --sigma N       Sigma threshold for physics result comparison (default: 5)
+#   --no-color      Suppress ANSI color codes (useful for CI logs and artifacts)
 #
 # Examples (to build manually):
 #   cmake -DPHIRST_BACKEND=CUDA  -S . -B build-cuda && cmake --build build-cuda
@@ -42,6 +43,7 @@ TEST_NAME="all"
 MODE_NAME="all"
 CHECK_RESULTS=false  # --check: exit 1 if consistency checks fail
 NSIGMA=5             # --sigma N: sigma threshold for physics result comparison
+NO_COLOR=false       # --no-color: suppress ANSI escape codes
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -63,6 +65,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --check)
             CHECK_RESULTS=true
+            shift
+            ;;
+        --no-color)
+            NO_COLOR=true
             shift
             ;;
         --sigma)
@@ -93,6 +99,9 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
+if $NO_COLOR; then
+    RED='' GREEN='' YELLOW='' BLUE='' CYAN='' NC=''
+fi
 
 echo -e "${CYAN}======================================${NC}"
 echo -e "${CYAN}PHIRST GPU Performance Benchmark${NC}"
