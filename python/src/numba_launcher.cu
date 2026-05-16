@@ -130,9 +130,12 @@ extern "C" int phirst_link_and_launch(
     if (context == nullptr) {
         CUdevice device = 0;
         PHIRST_CU_TRY(cuDeviceGet(&device, 0), "cuDeviceGet");
-        // cuCtxCreate maps to cuCtxCreate_v2 (3-arg) when compiled by g++;
-        // CUDA's backward-compatible symbol accepts flags=0 in all versions.
+#if CUDA_VERSION >= 13000
+        // CUDA 13.0 renames cuCtxCreate to cuCtxCreate_v4 (adds CUctxCreateParams* arg)
+        PHIRST_CU_TRY(cuCtxCreate(&context, nullptr, 0, device), "cuCtxCreate");
+#else
         PHIRST_CU_TRY(cuCtxCreate(&context, 0, device), "cuCtxCreate");
+#endif
         createdContext = true;
     }
 
