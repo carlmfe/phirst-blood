@@ -150,9 +150,8 @@ def _run_numba_integrand(
     )
     if status != 0:
         raise RuntimeError(
-            "phirst_link_and_launch failed. Ensure a CUDA GPU is available, "
-            "libphirst_numba_bridge.so was built with PHIRST_NUMBA_BRIDGE=ON, "
-            "and masses are zero for the current Numba GPU path."
+            "phirst_link_and_launch failed. Ensure a CUDA GPU is available "
+            "and libphirst_numba_bridge.so was built with PHIRST_NUMBA_BRIDGE=ON."
         )
 
     return _IntegrationResultProxy(

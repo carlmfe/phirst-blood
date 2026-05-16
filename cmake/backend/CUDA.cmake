@@ -84,6 +84,7 @@ if(PHIRST_NUMBA_BRIDGE)
             -Xcompiler=-fPIC
             ${_phirst_numba_bridge_arch_flag}
             --expt-extended-lambda
+            --expt-relaxed-constexpr
             -DPHIRST_BACKEND_CUDA
             -I${CMAKE_CURRENT_SOURCE_DIR}/include
             -o ${_phirst_numba_bridge_object}
@@ -91,6 +92,7 @@ if(PHIRST_NUMBA_BRIDGE)
         DEPENDS
             ${CMAKE_CURRENT_SOURCE_DIR}/python/src/numba_bridge.cu
             ${CMAKE_CURRENT_SOURCE_DIR}/include/phirst/backend/numba_bridge.cuh
+            ${CMAKE_CURRENT_SOURCE_DIR}/include/phirst/phase_space.hpp
             ${CMAKE_CURRENT_SOURCE_DIR}/include/phirst/backend/random.hpp
             ${CMAKE_CURRENT_SOURCE_DIR}/include/phirst/backend/math.hpp
             ${CMAKE_CURRENT_SOURCE_DIR}/include/phirst/backend/config.hpp

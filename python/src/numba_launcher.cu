@@ -73,15 +73,6 @@ auto bridge_object_path() -> std::string {
     return (libPath.parent_path() / PHIRST_NUMBA_BRIDGE_OBJECT_FILENAME).string();
 }
 
-auto masses_are_massless(const double* massesHost, int nParticles) -> bool {
-    for (int i = 0; i < nParticles; ++i) {
-        if (std::fabs(massesHost[i]) > 0.0) {
-            return false;
-        }
-    }
-    return true;
-}
-
 void compute_statistics(int64_t nEvents, double sum, double sum2, double* meanOut, double* errorOut) {
     if (meanOut == nullptr || errorOut == nullptr) {
         return;
@@ -117,10 +108,6 @@ extern "C" int phirst_link_and_launch(
         std::fprintf(stderr, "phirst numba bridge: nParticles must be in [2, 10]\n");
         return 1;
     }
-    if (!masses_are_massless(masses_host, nParticles)) {
-        std::fprintf(stderr, "phirst numba bridge: only massless particles are supported\n");
-        return 1;
-    }
 
     int result = 0;
     CUresult status = CUDA_SUCCESS;
@@ -143,7 +130,9 @@ extern "C" int phirst_link_and_launch(
     if (context == nullptr) {
         CUdevice device = 0;
         PHIRST_CU_TRY(cuDeviceGet(&device, 0), "cuDeviceGet");
-        PHIRST_CU_TRY(cuCtxCreate(&context, nullptr, 0, device), "cuCtxCreate");
+        // cuCtxCreate maps to cuCtxCreate_v2 (3-arg) when compiled by g++;
+        // CUDA's backward-compatible symbol accepts flags=0 in all versions.
+        PHIRST_CU_TRY(cuCtxCreate(&context, 0, device), "cuCtxCreate");
         createdContext = true;
     }
 
